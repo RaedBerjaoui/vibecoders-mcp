@@ -1,0 +1,39 @@
+{
+  "//": "Copy to config.json (or ~/.vibecoders/config.json). NON-SECRET settings only — keys live in the Keychain or .env. Everything here is optional; delete any block to take the default. Manage from the CLI: `vibecoders config set <dotted.key> <value>`.",
+
+  "features": {
+    "//": "Turn whole tool groups on/off. memory/reference/projectContext/tasks on; device/vault off (opt-in — they read personal data).",
+    "memory": true,
+    "reference": true,
+    "projectContext": true,
+    "tasks": true,
+    "device": false,
+    "vault": false
+  },
+
+  "memory": {
+    "//": "The RAG knowledge graph. Lexical recall needs no keys. Embeddings are opt-in and use YOUR OWN provider key.",
+    "embeddings": false,
+    "embedProvider": "openai",
+    "embedModel": "text-embedding-3-small",
+    "defaultScope": "project",
+    "alpha": 0.5
+  },
+
+  "reference": {
+    "//": "Guards for the URL-study tools. Private/loopback hosts are refused unless you opt in here.",
+    "allowPrivateHosts": false,
+    "allowHosts": [],
+    "maxBytes": 2000000
+  },
+
+  "vault": {
+    "//": "Only used when features.vault is true. A directory of text notes, indexed read-only with the memory BM25 ranker.",
+    "dir": "~/.vibecoders/vault"
+  },
+
+  "capabilities": {
+    "image_gen": { "provider": "codex-cli" },
+    "web_search": { "provider": "gemini-cli" }
+  }
+}

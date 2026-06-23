@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run typecheck
+      # `npm test` runs `pretest` (npm run build) first, so the integration suite
+      # always validates a freshly-built dist/ — never a stale or absent bundle.
+      - run: npm test
+      - name: Audit production deps
+        run: npm audit --omit=dev --audit-level=high

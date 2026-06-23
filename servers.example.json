@@ -1,0 +1,26 @@
+{
+  "_comment": "Copy to servers.json (git-ignored) and list the downstream MCP servers you want mounted. Reference secrets by ENV NAME only — never paste values here. They load lazily, so mounting many costs almost no context. Delete any example you don't want.",
+  "_resolution": "The server reads servers.json from (in order): $VIBECODERS_SERVERS → ~/.vibecoders/servers.json → ./servers.json (repo root).",
+  "_versions_note": "Versions below are pinned for supply-chain hygiene. Bump them deliberately; an unpinned @latest pulls whatever is newest at spawn time.",
+  "_mounting_local_or_gui_servers": "To mount a LOCAL server (a GUI-automation server like ghost-os, or any custom MCP), point command at an absolute path, e.g. { \"command\": \"node\", \"args\": [\"/abs/path/to/server.js\"], \"lazy\": true }. Mounting is how vibecoders reaches the desktop/device surface without bundling it.",
+  "_messages_note": "The 'messages' example mounts mac_messages_mcp (iMessage/SMS) and needs `uv` (https://docs.astral.sh/uv) plus macOS Full Disk Access for your terminal. Remove it if you're not on macOS.",
+  "_lazy_note": "lazy:true (the default) = the server stays cold and is spawned only on first on-demand use, costing nothing at boot. lazy:false = the server is connected and its tools indexed eagerly at startup, so a search_tools hits it instantly — set it on the one or two servers you reach for every session. Eager connects are fail-soft and bounded, so a slow lazy:false server never blocks boot.",
+  "servers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.76"],
+      "lazy": false
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
+      "env": ["GITHUB_TOKEN"],
+      "lazy": true
+    },
+    "messages": {
+      "command": "uvx",
+      "args": ["mac-messages-mcp@0.9.2"],
+      "lazy": true
+    }
+  }
+}

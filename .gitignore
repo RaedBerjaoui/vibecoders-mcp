@@ -1,0 +1,54 @@
+# ── secrets / env (nothing sensitive ever leaves your machine) ──
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+# anchored to repo root so it never swallows src/vault/ (required source)
+/vault/
+*.key
+*.pem
+*.p12
+id_rsa*
+id_ed25519*
+.vibecoders/
+# private capability overlay (owner-local; never publish). Default ~/.vibecoders/private
+# is already covered by .vibecoders/ above — this covers a repo-root overlay too.
+/private/
+.pioneer/
+servers.json
+config.json
+!config.example.json
+/memory/
+*.db
+
+# ── dependencies / build ───────────────────────────────────────
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# ── logs / runtime ─────────────────────────────────────────────
+.logs/
+logs/
+*.log
+*.pid
+
+# ── os / editor ────────────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# ── local-only resume docs / session state (never publish) ─────
+HANDOFF.md
+.remember/
+.claude/
+security_best_practices_report.md
+
+# ── internal planning / maintainer docs (kept local, never published) ─
+docs/superpowers/
+docs/PLAN.md
+docs/SPEC.md
+docs/PUBLISH.md
+docs/SECURITY.md

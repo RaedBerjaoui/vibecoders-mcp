@@ -1,0 +1,71 @@
+{
+  "name": "vibecoders-mcp",
+  "version": "0.1.0",
+  "description": "One MCP for Claude Code that swallows other MCP servers and delegates to Codex & Gemini on your CLI subscriptions — secret-free by design.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vibecoders",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "codex",
+    "gemini",
+    "gateway",
+    "ai",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RaedBerjaoui/vibecoders-mcp.git"
+  },
+  "homepage": "https://github.com/RaedBerjaoui/vibecoders-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/RaedBerjaoui/vibecoders-mcp/issues"
+  },
+  "bin": {
+    "vibecoders": "bin/vibecoders.mjs",
+    "vibecoders-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist/index.js",
+    "bin",
+    ".claude-plugin",
+    ".mcp.json",
+    "servers.example.json",
+    "config.example.json",
+    ".env.example",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "NOTICE.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "onboard": "node bin/vibecoders.mjs onboard",
+    "doctor": "node bin/vibecoders.mjs doctor",
+    "prepublishOnly": "npm run build && npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.0",
+    "vitest": "^3.2.6"
+  }
+}
