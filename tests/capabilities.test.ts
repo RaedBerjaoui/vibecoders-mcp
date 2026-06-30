@@ -211,6 +211,7 @@ describe('FEATURE_GROUPS (single source of truth)', () => {
       'tasks',
       'device',
       'vault',
+      'rag',
     ]);
     // memory/reference/projectContext/tasks ON; device/vault OFF (opt-in personal data).
     expect(Object.fromEntries(FEATURE_GROUPS.map((g) => [g.name, g.default]))).toEqual({
@@ -220,6 +221,7 @@ describe('FEATURE_GROUPS (single source of truth)', () => {
       tasks: true,
       device: false,
       vault: false,
+      rag: true,
     });
     // Every group carries a human label for the doctor status line.
     expect(FEATURE_GROUPS.every((g) => typeof g.label === 'string' && g.label.length > 0)).toBe(true);
@@ -233,6 +235,7 @@ describe('FEATURE_GROUPS (single source of truth)', () => {
       tasks: true,
       device: false,
       vault: false,
+      rag: true,
     });
     // Keys of FEATURE_DEFAULTS are exactly the group names.
     expect(Object.keys(FEATURE_DEFAULTS).sort()).toEqual(

@@ -29,6 +29,7 @@ import { createTaskRegistry } from './tasks/registry';
 import { registerTasks } from './tasks/tools';
 import { registerDevice } from './device/tools';
 import { registerVault } from './vault/tools';
+import { registerRag } from './rag/tools';
 
 // Injected from package.json at build time (build.mjs esbuild `define`). The dev runner
 // (tsx, no define) leaves it undefined; `typeof` keeps that safe and falls back loudly.
@@ -203,6 +204,11 @@ const INSTRUCTIONS = `Vibecoders is an MCP control plane, built to be driven fro
 Everything below is OPTIONAL — the server runs with no keys, no servers, and no
 provider CLIs. Add only what you want.
 
+• Design above Claude's defaults: building a UI, website, page, or component?
+  Call design_core FIRST for an elite, anti-generic design standard plus two
+  pre-build gates (derive everything from the brand, and make it alive), then
+  design_layer to pull deeper craft on demand (motion, type, the vibecoded tells
+  to avoid, the capability palette). Render imagery with generate_image.
 • Swallow other MCP servers: rather than dumping every downstream tool into
   context, call search_tools → load_tool → call_tool to find and run any tool on
   a mounted server on demand. Hundreds of tools cost almost no context.
@@ -327,6 +333,9 @@ async function main(): Promise<void> {
   }
   if (featureEnabled(vibeConfig, 'vault')) {
     registerVault(server, { config: vibeConfig.vault ?? {}, log });
+  }
+  if (featureEnabled(vibeConfig, 'rag')) {
+    registerRag(server, { log });
   }
 
   // Private overlay: owner-local BYO capability modules (never shipped). Generic,

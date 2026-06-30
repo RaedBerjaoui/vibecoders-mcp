@@ -1,6 +1,6 @@
 {
   "name": "vibecoders-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One MCP for Claude Code that swallows other MCP servers and delegates to Codex & Gemini on your CLI subscriptions — secret-free by design.",
   "type": "module",
   "license": "MIT",

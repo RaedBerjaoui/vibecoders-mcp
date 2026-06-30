@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Marketplace for Vibecoders MCP — an MCP control plane for Claude Code.",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "vibecoders",
       "source": ".",
       "description": "An MCP control plane for Claude Code: swallow other MCP servers through one gateway, delegate to Codex/Gemini/Claude on your own CLI subscriptions, plus a RAG memory graph, reference study, and cross-session handoffs. Optional all the way down, secret-free, fail-closed.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "license": "MIT",
       "keywords": [
         "mcp",

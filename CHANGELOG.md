@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+
+- **Design RAG** — `design_core` and `design_layer`, a brand-agnostic
+  design-intelligence layer that lifts Claude's UI/website/component output above
+  its generic, templated defaults. `design_core` loads a lean standard plus two
+  pre-build gates (derive-everything-from-the-brand, and aliveness); `design_layer`
+  pulls deeper craft on demand (`donts`, `craft`, `capabilities`, `typography`,
+  `cards`, `image_gen`, `standard`). Imagery composes with the existing
+  `generate_image`. On by default (`features.rag`) and delivered on demand, so it
+  adds no idle context. Distilled from a curated corpus of elite sites and hardened
+  with a blind test (a sandboxed agent must derive a full design from a vague brand
+  line, judged against a base-Claude control).
+
 ## [0.1.0]
 
 Initial release — an MCP control plane for Claude Code. Secret-free by design,

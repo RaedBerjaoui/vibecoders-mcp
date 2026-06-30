@@ -40,6 +40,7 @@ export const FEATURE_GROUPS = [
   { name: 'tasks', label: 'tasks', default: true },
   { name: 'device', label: 'device', default: false },
   { name: 'vault', label: 'vault', default: false },
+  { name: 'rag', label: 'design', default: true },
 ] as const;
 
 export type FeatureName = (typeof FEATURE_GROUPS)[number]['name'];
