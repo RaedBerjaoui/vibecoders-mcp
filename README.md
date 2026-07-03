@@ -64,7 +64,7 @@ is always on.
 | **Research — web** | `web_search` | **capability** — configure a provider (gemini CLI, or Gemini/Brave/Tavily key) |
 | **Research — reference** | `reference_inspect` · `reference_excerpt` · `reference_read_source` | tool group `features.reference` (on) |
 | **Generate** | `generate_image` | **capability** — configure a provider (codex CLI, or OpenAI/Gemini key) |
-| **Design RAG** (escape generic defaults) | `design_core` · `design_layer` | tool group `features.rag` (on) |
+| **Design RAG** (escape generic defaults; bring-your-own content) | `design_core` · `design_layer` | tool group `features.rag` (on) |
 | **Handoffs** (per lane) | `write_handoff` · `recall_handoff` | always on |
 | **Device** (opt-in · macOS) | `device_search` · `chat_history_search` | tool group `features.device` (off) |
 | **Notes vault** (opt-in) | `vault_search` · `vault_read` | tool group `features.vault` (off) |
@@ -198,67 +198,38 @@ vibecoders config set vault.dir ~/notes      # your notes directory
 
 ### 8. Design like the best: escape Claude's generic defaults
 
-`design_core` and `design_layer`: a brand-agnostic design-intelligence layer that
-lifts Claude's UI, website, and component output above the generic, templated,
-unmistakably-AI look it reaches for by default. **On by default** (`features.rag`).
+`design_core` and `design_layer`: a design-intelligence layer that lifts
+Claude's UI, website, and component output above the generic, templated,
+unmistakably-AI look it reaches for by default. **On by default**
+(`features.rag`), and **bring-your-own content**: this package ships the
+capability, not the knowledge. The tools load their content at startup from
+`~/.vibecoders/design-rag/` (`core.json` + `layers.json`;
+`VIBECODERS_DESIGN_RAG_DIR` overrides the path, `VIBECODERS_HOME` moves the
+parent). `scripts/build-rag-data.mjs` generates both files from your own
+design-knowledge source tree. Without local content the tools stay registered
+and answer with a short not-installed note, so nothing breaks.
 
 **How it works.** It is delivered on demand, so it costs almost nothing until a
 design task needs it:
 
-- **`design_core`** loads the lean core: the affirmative standard plus two
-  pre-build gates the model has to pass before it writes any code. The first gate
-  forces every decision to be *derived from the brand* (not an adjective, not a
-  category template). The second, the *aliveness* gate, forces motion and layout
-  to perform the concept instead of decorating it.
+- **`design_core`** loads the lean core of your knowledge: your standard plus
+  whatever pre-build gates you encode. Call it once at the start of a build.
 - **`design_layer`** pulls one deeper layer only when the build needs it:
-  `donts` (the catalogue of AI telltale signs to self-check against before
-  shipping), `craft` (the mechanism-level craft of seamless, bold motion and the
-  pro-look visual finish), `capabilities` (the situational palette: 2.5D photo,
-  shaders, particles, video, 3D), `typography`, `cards` (worked technique
-  exemplars), `image_gen`, and `standard` (the elite bar made legible).
-- **Imagery composes for free.** The `image_gen` layer points the model straight
-  at `generate_image`, so generated, on-concept imagery is part of the same flow.
+  `donts`, `craft`, `capabilities`, `typography`, `cards`, `image_gen`, and
+  `standard`.
+- **Imagery composes for free.** The `image_gen` layer can point the model
+  straight at `generate_image`, so generated, on-concept imagery is part of the
+  same flow.
 
 Always-on cost is one line in the server instructions. The core loads only when a
 design task starts, and a layer only when it is pulled, so nothing bloats.
 
-**How it was built.** The intelligence is distilled from a curated corpus of about
-150 elite, award-tier sites into a brand-agnostic rulebook: what good actually is,
-the telltale signs to never ship, and the craft that makes motion seamless. It is
-hardened with a **blind test**: a fresh agent, sandboxed to the RAG and given
-nothing but a vague brand line, has to *derive* the whole design with no access to
-any answer, then it is judged against a base-Claude control on the identical
-prompt.
-
-**The effect.** Two things change, and neither is subtle.
-
-1. **The AI telltale signs come off.** The reflexive fade-in on every element, the
-   hand-drawn SVG "map", the kicker dot stacked over a heading, the one italicized
-   word, the centered-column template, the punctuation tics. The patterns that make
-   output read as AI-generated at a glance are named and cut.
-2. **Creativity moves from the copy into the design.** Base Claude expresses a
-   brand idea in *words*, a headline that puns on the name. The RAG makes the brand
-   idea the *architecture*: structure, motion, type, and imagery all performing the
-   concept.
-
-**Concrete before and after.** Given only `make a website for a cafe called the
-daily press`:
-
-- **Base Claude** builds a competent but generic cafe template: fade-in sections, a
-  fake hand-drawn SVG map, product cards, and the press/paper idea stuck in one
-  line of copy.
-- **The same four-word prompt, through the design RAG,** derives an entire
-  *newspaper*. The site **is** the paper: every section is a printed page, with
-  halftone newsprint photography, editorial columns, a running wire ticker, and
-  motion that performs the concept. Same model, same prompt. The only thing
-  different is the design intelligence in front of it.
-
 **Worked example** (load the core, pull a layer, render imagery):
 
 ```
-design_core                            # the standard + the two gates; do this first
-design_layer  { "layer": "donts" }     # the AI tells to self-check against before shipping
-design_layer  { "layer": "craft" }     # seamless-motion + pro-look craft, pulled only when needed
+design_core                            # your standard + gates; do this first
+design_layer  { "layer": "donts" }     # your self-check catalogue
+design_layer  { "layer": "craft" }     # your motion/visual craft, pulled only when needed
 generate_image { "prompt": "...", "out_path": "/abs/out/hero.png" }
 ```
 

@@ -1,7 +1,7 @@
 /**
- * Design RAG — opt-in (features.rag). A brand-agnostic design-intelligence layer
- * that lifts Claude's UI/website/component output above its generic defaults.
- * Delivered ON DEMAND so it costs ~nothing until a design task needs it:
+ * Design RAG — opt-in (features.rag). A design-intelligence layer that lifts
+ * Claude's UI/website/component output above its generic defaults, delivered
+ * ON DEMAND so it costs ~nothing until a design task needs it:
  *   • design_core  — the lean always-relevant core: the affirmative standard plus
  *                    the two pre-build gates (derive-from-the-brand, aliveness).
  *                    Called once at the start of a build.
@@ -9,22 +9,26 @@
  *                    capabilities, typography, image_gen, standard) only when the
  *                    build actually needs it.
  *
- * The content rides INSIDE dist/index.js as inlined JSON (src/rag/data/*.json,
- * esbuild Route A), so the capability is fully self-contained — no runtime file
- * resolution, works identically in dev, npx, and the plugin clone. Imagery is not
- * coupled here: the image_gen layer simply points the model at the existing
- * generate_image tool. Cores are PURE (take the data explicitly) so tests pass
- * fixtures instead of the bundled payload.
+ * The CONTENT is not bundled with this package. It loads at startup from a local
+ * directory — ~/.vibecoders/design-rag/{core.json,layers.json} by default,
+ * overridable via VIBECODERS_DESIGN_RAG_DIR (VIBECODERS_HOME moves the parent) —
+ * so the public package ships the capability while the design knowledge itself
+ * stays private, bring-your-own. scripts/build-rag-data.mjs generates the two
+ * files from a design-knowledge source tree. When the content is absent the
+ * tools stay registered and answer with a short not-installed note. Cores are
+ * PURE (take the data explicitly) so tests pass fixtures instead of a payload.
  */
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { text, errorText } from '../util/mcp';
 import type { Logger } from '../util/logger';
-import coreData from './data/core.json';
-import layersData from './data/layers.json';
 
 /** The ordered set of deeper layers. Source of truth for the design_layer enum;
- *  parity with the generated data keys is asserted in tests so they can't drift. */
+ *  parity with the loaded data is asserted in tests via fixtures so the enum and
+ *  the generator can't drift. */
 export const LAYER_NAMES = [
   'donts',
   'craft',
@@ -40,10 +44,41 @@ export interface RagCore {
   content: string;
 }
 export type RagLayers = Record<string, string>;
+export interface RagData {
+  core: RagCore;
+  layers: RagLayers;
+}
 
 /** Generous byte bound — no current layer approaches it, so nothing truncates;
  *  it only exists so a future oversized layer degrades gracefully, like vault. */
 const MAX_LAYER_BYTES = 200_000;
+
+/** Where the local design-RAG content lives. Mirrors configPath()'s home logic. */
+export function designRagDir(): string {
+  const explicit = process.env.VIBECODERS_DESIGN_RAG_DIR;
+  if (explicit) return explicit;
+  const home = process.env.VIBECODERS_HOME ?? join(homedir(), '.vibecoders');
+  return join(home, 'design-rag');
+}
+
+/** Load {core,layers} from the local dir. Absent or malformed content resolves
+ *  to null (the not-installed state) — never a throw at startup. */
+export function loadRagData(dir = designRagDir()): RagData | null {
+  try {
+    const core = JSON.parse(readFileSync(join(dir, 'core.json'), 'utf8')) as RagCore;
+    const layers = JSON.parse(readFileSync(join(dir, 'layers.json'), 'utf8')) as RagLayers;
+    if (typeof core?.content !== 'string' || core.content.length === 0) return null;
+    if (layers === null || typeof layers !== 'object' || Array.isArray(layers)) return null;
+    return { core, layers };
+  } catch {
+    return null;
+  }
+}
+
+const NOT_INSTALLED =
+  'The design RAG is not installed locally. Put core.json and layers.json in ' +
+  '~/.vibecoders/design-rag/ (or point VIBECODERS_DESIGN_RAG_DIR at them); ' +
+  'scripts/build-rag-data.mjs generates both from your own design-knowledge tree.';
 
 /** The always-loaded core text. Pure: caller supplies the data. */
 export function renderCore(core: RagCore): string {
@@ -68,8 +103,10 @@ export function renderLayer(layers: RagLayers, name: string, maxBytes = MAX_LAYE
 
 export function registerRag(server: McpServer, deps: { log: Logger }): void {
   const { log } = deps;
-  const core = coreData as RagCore;
-  const layers = layersData as RagLayers;
+  const data = loadRagData();
+  if (data === null) {
+    log.info(`[rag] no local design-RAG content at ${designRagDir()}; tools answer not-installed`);
+  }
 
   server.registerTool(
     'design_core',
@@ -78,7 +115,7 @@ export function registerRag(server: McpServer, deps: { log: Logger }): void {
         'Load the design-intelligence core: an elite, anti-generic design standard plus the two pre-build gates (derive-everything-from-the-brand, and aliveness). Call this FIRST when building ANY UI, website, page, component, or visual, then pull deeper craft with design_layer. Opt-in (features.rag).',
       inputSchema: {},
     },
-    async () => text(renderCore(core)),
+    async () => (data ? text(renderCore(data.core)) : text(NOT_INSTALLED)),
   );
 
   server.registerTool(
@@ -91,8 +128,9 @@ export function registerRag(server: McpServer, deps: { log: Logger }): void {
       },
     },
     async ({ layer }) => {
+      if (!data) return text(NOT_INSTALLED);
       try {
-        return text(renderLayer(layers, layer));
+        return text(renderLayer(data.layers, layer));
       } catch (e) {
         log.warn(`[design_layer] ${(e as Error).message}`);
         return errorText(`design_layer failed: ${(e as Error).message}`);

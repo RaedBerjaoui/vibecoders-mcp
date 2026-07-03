@@ -1,26 +1,28 @@
 /**
- * Regenerate src/rag/data/{core,layers}.json from the design-RAG source.
+ * Generate the LOCAL design-RAG content, {core,layers}.json, from a
+ * design-knowledge source tree.
  *
- * The generated JSON is the SOURCE OF TRUTH committed in this repo: the design
- * capability is fully self-contained (no runtime dependency on the source dir),
- * and esbuild inlines these JSON files into the single dist/index.js (Route A).
- * This script is a maintainer tool only — run it when the upstream design-RAG
- * changes. The public package never needs the source.
+ * The content is NOT committed to this repo and NOT bundled into dist. The
+ * design_core / design_layer tools load it at startup from the local content
+ * dir — ~/.vibecoders/design-rag by default, VIBECODERS_DESIGN_RAG_DIR to
+ * override (VIBECODERS_HOME moves the parent) — so the public package ships
+ * the capability while the knowledge itself stays private, bring-your-own.
  *
  *   node scripts/build-rag-data.mjs <design-rag rag/ dir>
  *   DESIGN_RAG_SRC=/path/to/rag node scripts/build-rag-data.mjs
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const SRC = process.argv[2] || process.env.DESIGN_RAG_SRC;
 if (!SRC) {
   console.error('usage: node scripts/build-rag-data.mjs <design-rag rag/ dir>');
   process.exit(1);
 }
-const here = dirname(fileURLToPath(import.meta.url));
-const OUT = join(here, '..', 'src', 'rag', 'data');
+const OUT =
+  process.env.VIBECODERS_DESIGN_RAG_DIR ??
+  join(process.env.VIBECODERS_HOME ?? join(homedir(), '.vibecoders'), 'design-rag');
 mkdirSync(OUT, { recursive: true });
 const read = (p) => readFileSync(join(SRC, p), 'utf8');
 
@@ -58,5 +60,5 @@ writeFileSync(join(OUT, 'core.json'), `${JSON.stringify(core, null, 2)}\n`);
 writeFileSync(join(OUT, 'layers.json'), `${JSON.stringify(layers, null, 2)}\n`);
 
 const kb = (s) => `${Math.round(s.length / 1024)}KB`;
-console.log('wrote src/rag/data/core.json', kb(core.content));
+console.log(`wrote ${join(OUT, 'core.json')}`, kb(core.content));
 for (const [k, v] of Object.entries(layers)) console.log(`  layer ${k}: ${kb(v)}`);

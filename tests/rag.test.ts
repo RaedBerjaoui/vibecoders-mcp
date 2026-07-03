@@ -1,16 +1,44 @@
-import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
+  availableLayers,
+  designRagDir,
+  loadRagData,
+  registerRag,
   renderCore,
   renderLayer,
-  availableLayers,
-  registerRag,
   LAYER_NAMES,
 } from '../src/rag/tools';
-import coreData from '../src/rag/data/core.json';
-import layersData from '../src/rag/data/layers.json';
 import type { Logger } from '../src/util/logger';
 
 const fixtureLayers = { donts: 'AVOID THE FADE', craft: 'ease with intent' };
+
+/** Write a valid local content dir and return its path. */
+function writeContentDir(core = 'the standard and the two gates'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'vibe-rag-'));
+  writeFileSync(join(dir, 'core.json'), JSON.stringify({ content: core }));
+  writeFileSync(
+    join(dir, 'layers.json'),
+    JSON.stringify({ donts: 'AVOID THE FADE', craft: 'ease with intent' }),
+  );
+  return dir;
+}
+
+const tempDirs: string[] = [];
+const ENV_KEYS = ['VIBECODERS_DESIGN_RAG_DIR', 'VIBECODERS_HOME'] as const;
+const savedEnv: Record<string, string | undefined> = {};
+for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
+
+afterEach(() => {
+  for (const k of ENV_KEYS) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
+  for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 describe('renderCore', () => {
   it('returns the core content verbatim', () => {
@@ -38,46 +66,109 @@ describe('availableLayers', () => {
   });
 });
 
-// The design_layer enum and the generated data must stay in lockstep — a layer
-// declared in LAYER_NAMES but missing from the bundle (or vice-versa) would be a
-// silent dead option. Assert parity against the REAL inlined payload.
-describe('bundled RAG data', () => {
-  it('has a non-empty core carrying the gates', () => {
-    const core = (coreData as { content: string }).content;
-    expect(core.length).toBeGreaterThan(1000);
-    expect(core).toMatch(/gate/i);
+// The content is bring-your-own: it loads from a local dir at startup, is
+// overridable by env, and its absence is a graceful state, never a throw.
+describe('designRagDir + loadRagData (local content)', () => {
+  it('defaults under the vibecoders home and honors both env overrides', () => {
+    process.env.VIBECODERS_HOME = '/tmp/vibe-home';
+    delete process.env.VIBECODERS_DESIGN_RAG_DIR;
+    expect(designRagDir()).toBe(join('/tmp/vibe-home', 'design-rag'));
+    process.env.VIBECODERS_DESIGN_RAG_DIR = '/tmp/explicit-rag';
+    expect(designRagDir()).toBe('/tmp/explicit-rag');
   });
 
-  it('every LAYER_NAMES entry exists in the data, and vice-versa', () => {
-    expect(Object.keys(layersData as Record<string, string>).sort()).toEqual([...LAYER_NAMES].sort());
+  it('loads {core, layers} from a content dir', () => {
+    const dir = writeContentDir();
+    tempDirs.push(dir);
+    const data = loadRagData(dir);
+    expect(data).not.toBeNull();
+    expect(data!.core.content).toMatch(/gates/);
+    expect(availableLayers(data!.layers)).toEqual(['donts', 'craft']);
   });
 
-  it('no layer is empty', () => {
-    for (const [name, body] of Object.entries(layersData as Record<string, string>)) {
+  it('resolves to null when the dir is absent', () => {
+    expect(loadRagData(join(tmpdir(), 'vibe-rag-definitely-missing'))).toBeNull();
+  });
+
+  it('resolves to null on malformed or hollow content, never throws', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-rag-bad-'));
+    tempDirs.push(dir);
+    writeFileSync(join(dir, 'core.json'), '{not json');
+    writeFileSync(join(dir, 'layers.json'), '{}');
+    expect(loadRagData(dir)).toBeNull();
+    writeFileSync(join(dir, 'core.json'), JSON.stringify({ content: '' }));
+    expect(loadRagData(dir)).toBeNull();
+    writeFileSync(join(dir, 'core.json'), JSON.stringify({ content: 'ok' }));
+    writeFileSync(join(dir, 'layers.json'), JSON.stringify(['not', 'a', 'record']));
+    expect(loadRagData(dir)).toBeNull();
+  });
+});
+
+// The design_layer enum and the generator must stay in lockstep: a layer
+// declared in LAYER_NAMES but not produced by scripts/build-rag-data.mjs (or
+// vice-versa) would be a silent dead option. Drive the REAL generator over a
+// tiny source tree and assert parity on its output.
+describe('build-rag-data.mjs generator parity', () => {
+  it('produces exactly the LAYER_NAMES set and a non-empty core', () => {
+    const src = mkdtempSync(join(tmpdir(), 'vibe-rag-src-'));
+    const out = mkdtempSync(join(tmpdir(), 'vibe-rag-out-'));
+    tempDirs.push(src, out);
+    mkdirSync(join(src, 'technique'), { recursive: true });
+    mkdirSync(join(src, 'corpus'), { recursive: true });
+    const sources: Record<string, string> = {
+      'dos.md': 'THE STANDARD: derive from the brand. Gate one. Gate two.',
+      'donts.json': '{"tells":[]}',
+      'technique/craft.md': 'craft',
+      'technique/cards.json': '{"cards":[]}',
+      'capabilities.md': 'capabilities',
+      'typography.md': 'type',
+      'image-gen.md': 'imagery',
+      'corpus/standard.md': 'the bar',
+    };
+    for (const [p, body] of Object.entries(sources)) writeFileSync(join(src, p), body);
+
+    execFileSync(process.execPath, [join(__dirname, '..', 'scripts', 'build-rag-data.mjs'), src], {
+      env: { ...process.env, VIBECODERS_DESIGN_RAG_DIR: out },
+    });
+
+    const layers = JSON.parse(readFileSync(join(out, 'layers.json'), 'utf8')) as Record<
+      string,
+      string
+    >;
+    const core = JSON.parse(readFileSync(join(out, 'core.json'), 'utf8')) as { content: string };
+    expect(Object.keys(layers).sort()).toEqual([...LAYER_NAMES].sort());
+    expect(core.content).toMatch(/THE STANDARD/);
+    expect(core.content).toMatch(/design_layer/);
+    for (const [name, body] of Object.entries(layers)) {
       expect(body.length, name).toBeGreaterThan(0);
     }
   });
 });
 
-// T-style: registerRag wires the tools over real MCP transport; design_core
-// returns the core and design_layer serves a named layer. design_layer's bad
-// path is enum-guarded by the SDK, so the pure renderLayer test above covers the
-// throw; here we assert the happy path end to end.
+// T-style: registerRag wires the tools over real MCP transport. With local
+// content installed the tools serve it; without it they answer the graceful
+// not-installed note (and stay registered, names and schemas stable).
 describe('registerRag — tools over MCP transport', () => {
-  it('serves design_core and design_layer', async () => {
+  async function connectPair() {
     const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
     const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
-
     const log: Logger = { debug() {}, info() {}, warn() {}, error() {} };
     const server = new McpServer({ name: 'test', version: '0.0.0' });
     registerRag(server, { log });
-
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'c', version: '0.0.0' });
-    try {
-      await Promise.all([server.connect(serverT), client.connect(clientT)]);
+    await Promise.all([server.connect(serverT), client.connect(clientT)]);
+    return client;
+  }
 
+  it('serves design_core and design_layer from the local content dir', async () => {
+    const dir = writeContentDir('the standard carrying the gates');
+    tempDirs.push(dir);
+    process.env.VIBECODERS_DESIGN_RAG_DIR = dir;
+
+    const client = await connectPair();
+    try {
       const tools = (await client.listTools()).tools.map((t) => t.name);
       expect(tools).toContain('design_core');
       expect(tools).toContain('design_layer');
@@ -85,13 +176,39 @@ describe('registerRag — tools over MCP transport', () => {
       const core = (await client.callTool({ name: 'design_core', arguments: {} })) as {
         content: Array<{ text: string }>;
       };
-      expect(core.content[0]!.text).toMatch(/gate/i);
+      expect(core.content[0]!.text).toMatch(/gates/i);
 
       const donts = (await client.callTool({
         name: 'design_layer',
         arguments: { layer: 'donts' },
       })) as { content: Array<{ text: string }> };
-      expect(donts.content[0]!.text.length).toBeGreaterThan(100);
+      expect(donts.content[0]!.text).toBe('AVOID THE FADE');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('answers the not-installed note when no local content exists', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'vibe-rag-empty-'));
+    tempDirs.push(empty);
+    process.env.VIBECODERS_DESIGN_RAG_DIR = empty;
+
+    const client = await connectPair();
+    try {
+      const tools = (await client.listTools()).tools.map((t) => t.name);
+      expect(tools).toContain('design_core');
+      expect(tools).toContain('design_layer');
+
+      const core = (await client.callTool({ name: 'design_core', arguments: {} })) as {
+        content: Array<{ text: string }>;
+      };
+      expect(core.content[0]!.text).toMatch(/not installed locally/);
+
+      const layer = (await client.callTool({
+        name: 'design_layer',
+        arguments: { layer: 'donts' },
+      })) as { content: Array<{ text: string }> };
+      expect(layer.content[0]!.text).toMatch(/not installed locally/);
     } finally {
       await client.close();
     }
