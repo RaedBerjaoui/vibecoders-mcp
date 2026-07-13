@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ import {
 } from '../src/rag/tools';
 import type { Logger } from '../src/util/logger';
 
-const fixtureLayers = { donts: 'AVOID THE FADE', craft: 'ease with intent' };
+const fixtureLayers = { donts: 'AVOID THE FADE', scaffolds: 'one dominant each' };
 
 /** Write a valid local content dir and return its path. */
 function writeContentDir(core = 'the standard and the two gates'): string {
@@ -22,7 +22,7 @@ function writeContentDir(core = 'the standard and the two gates'): string {
   writeFileSync(join(dir, 'core.json'), JSON.stringify({ content: core }));
   writeFileSync(
     join(dir, 'layers.json'),
-    JSON.stringify({ donts: 'AVOID THE FADE', craft: 'ease with intent' }),
+    JSON.stringify({ donts: 'AVOID THE FADE', scaffolds: 'one dominant each' }),
   );
   return dir;
 }
@@ -52,7 +52,9 @@ describe('renderLayer', () => {
   });
 
   it('throws with the available list on an unknown layer', () => {
-    expect(() => renderLayer(fixtureLayers, 'nope')).toThrow(/unknown layer "nope".*donts, craft/);
+    expect(() => renderLayer(fixtureLayers, 'nope')).toThrow(
+      /unknown layer "nope".*donts, scaffolds/,
+    );
   });
 
   it('byte-caps the returned body', () => {
@@ -62,7 +64,7 @@ describe('renderLayer', () => {
 
 describe('availableLayers', () => {
   it('lists the layer keys', () => {
-    expect(availableLayers(fixtureLayers)).toEqual(['donts', 'craft']);
+    expect(availableLayers(fixtureLayers)).toEqual(['donts', 'scaffolds']);
   });
 });
 
@@ -83,7 +85,7 @@ describe('designRagDir + loadRagData (local content)', () => {
     const data = loadRagData(dir);
     expect(data).not.toBeNull();
     expect(data!.core.content).toMatch(/gates/);
-    expect(availableLayers(data!.layers)).toEqual(['donts', 'craft']);
+    expect(availableLayers(data!.layers)).toEqual(['donts', 'scaffolds']);
   });
 
   it('resolves to null when the dir is absent', () => {
@@ -113,17 +115,19 @@ describe('build-rag-data.mjs generator parity', () => {
     const src = mkdtempSync(join(tmpdir(), 'vibe-rag-src-'));
     const out = mkdtempSync(join(tmpdir(), 'vibe-rag-out-'));
     tempDirs.push(src, out);
-    mkdirSync(join(src, 'technique'), { recursive: true });
-    mkdirSync(join(src, 'corpus'), { recursive: true });
     const sources: Record<string, string> = {
-      'dos.md': 'THE STANDARD: derive from the brand. Gate one. Gate two.',
-      'donts.json': '{"tells":[]}',
-      'technique/craft.md': 'craft',
-      'technique/cards.json': '{"cards":[]}',
-      'capabilities.md': 'capabilities',
-      'typography.md': 'type',
+      'dos.md': 'THE STANDARD: derive from the brand. Non-negotiable one. Non-negotiable two.',
+      'tells.json': '{"tells":[]}',
+      'formatting-index.md': 'formatting index',
+      'formatting.json': '{"laws":[]}',
+      'directives-index.md': 'directives index',
+      'directives.json': '{"directives":[]}',
+      'scaffolds-index.md': 'scaffolds index',
+      'scaffolds.json': '{"scaffolds":[]}',
+      'scaffolds.css': '.shell { display: grid }',
+      'type-pointers-index.md': 'type pointers index',
+      'type-pointers.json': '{"pointers":[]}',
       'image-gen.md': 'imagery',
-      'corpus/standard.md': 'the bar',
     };
     for (const [p, body] of Object.entries(sources)) writeFileSync(join(src, p), body);
 

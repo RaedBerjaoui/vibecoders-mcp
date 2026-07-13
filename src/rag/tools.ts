@@ -2,12 +2,13 @@
  * Design RAG — opt-in (features.rag). A design-intelligence layer that lifts
  * Claude's UI/website/component output above its generic defaults, delivered
  * ON DEMAND so it costs ~nothing until a design task needs it:
- *   • design_core  — the lean always-relevant core: the affirmative standard plus
- *                    the two pre-build gates (derive-from-the-brand, aliveness).
+ *   • design_core  — the lean always-relevant core: the anti-AI-design standard
+ *                    (make the output not read as AI-made and hold its formatting),
+ *                    the tells principle, and the build non-negotiables.
  *                    Called once at the start of a build.
- *   • design_layer — pull ONE deeper layer by name (donts, craft, cards,
- *                    capabilities, typography, image_gen, standard) only when the
- *                    build actually needs it.
+ *   • design_layer — pull ONE deeper layer by name (donts, formatting,
+ *                    directives, scaffolds, type_pointers, image_gen) only when
+ *                    the build actually needs it.
  *
  * The CONTENT is not bundled with this package. It loads at startup from a local
  * directory — ~/.vibecoders/design-rag/{core.json,layers.json} by default,
@@ -31,12 +32,11 @@ import type { Logger } from '../util/logger';
  *  the generator can't drift. */
 export const LAYER_NAMES = [
   'donts',
-  'craft',
-  'cards',
-  'capabilities',
-  'typography',
+  'formatting',
+  'directives',
+  'scaffolds',
+  'type_pointers',
   'image_gen',
-  'standard',
 ] as const;
 export type LayerName = (typeof LAYER_NAMES)[number];
 
@@ -112,7 +112,7 @@ export function registerRag(server: McpServer, deps: { log: Logger }): void {
     'design_core',
     {
       description:
-        'Load the design-intelligence core: an elite, anti-generic design standard plus the two pre-build gates (derive-everything-from-the-brand, and aliveness). Call this FIRST when building ANY UI, website, page, component, or visual, then pull deeper craft with design_layer. Opt-in (features.rag).',
+        'Load the design-intelligence core of the anti-AI-design RAG: the standard that makes the output NOT read as AI-made and hold its formatting across every screen, the tells principle (displace the bias, never the surface instance), the build non-negotiables, and the menu of deeper layers. Call this FIRST when building ANY UI, website, page, component, or visual, then pull a layer with design_layer. Opt-in (features.rag).',
       inputSchema: {},
     },
     async () => (data ? text(renderCore(data.core)) : text(NOT_INSTALLED)),
@@ -122,7 +122,7 @@ export function registerRag(server: McpServer, deps: { log: Logger }): void {
     'design_layer',
     {
       description:
-        'Pull ONE deeper design layer on demand, by name: donts (vibecoded tells to avoid — self-check the plan before shipping), craft (seamless motion + pro-look visual craft), cards (worked technique exemplars), capabilities (the situational palette: 2.5D photo, shaders, particles, video, 3D), typography, image_gen (how to generate imagery — render it with the generate_image tool), standard (the corpus bar). Call design_core first; pull a layer only when the build needs it. Opt-in (features.rag).',
+        'Pull ONE deeper design layer on demand, by name: donts (the vibecoded-tells catalogue — self-check the plan against it before shipping), formatting (the laws that make a page fill any screen with no dead margin and nothing clipped), directives (hard build directives: how to source visuals and structure a one-page site), scaffolds (occupancy-correct section scaffolds and their CSS — one dominant each), type_pointers (formatting-safe typographic elevation), image_gen (how to generate imagery — render it with the generate_image tool). Call design_core first; pull a layer only when the build needs it. Opt-in (features.rag).',
       inputSchema: {
         layer: z.enum(LAYER_NAMES).describe('which layer to load'),
       },

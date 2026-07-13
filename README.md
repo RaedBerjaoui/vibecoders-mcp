@@ -198,9 +198,9 @@ vibecoders config set vault.dir ~/notes      # your notes directory
 
 ### 8. Design like the best: escape Claude's generic defaults
 
-`design_core` and `design_layer`: a design-intelligence layer that lifts
-Claude's UI, website, and component output above the generic, templated,
-unmistakably-AI look it reaches for by default. **On by default**
+`design_core` and `design_layer`: the anti-AI-design RAG — a design-intelligence
+layer that lifts Claude's UI, website, and component output above the generic,
+templated, unmistakably-AI look it reaches for by default. **On by default**
 (`features.rag`), and **bring-your-own content**: this package ships the
 capability, not the knowledge. The tools load their content at startup from
 `~/.vibecoders/design-rag/` (`core.json` + `layers.json`;
@@ -215,8 +215,8 @@ design task needs it:
 - **`design_core`** loads the lean core of your knowledge: your standard plus
   whatever pre-build gates you encode. Call it once at the start of a build.
 - **`design_layer`** pulls one deeper layer only when the build needs it:
-  `donts`, `craft`, `capabilities`, `typography`, `cards`, `image_gen`, and
-  `standard`.
+  `donts` (the vibecoded-tells catalogue), `formatting`, `directives`,
+  `scaffolds`, `type_pointers`, and `image_gen`.
 - **Imagery composes for free.** The `image_gen` layer can point the model
   straight at `generate_image`, so generated, on-concept imagery is part of the
   same flow.
@@ -227,9 +227,9 @@ design task starts, and a layer only when it is pulled, so nothing bloats.
 **Worked example** (load the core, pull a layer, render imagery):
 
 ```
-design_core                            # your standard + gates; do this first
-design_layer  { "layer": "donts" }     # your self-check catalogue
-design_layer  { "layer": "craft" }     # your motion/visual craft, pulled only when needed
+design_core                             # your standard + non-negotiables; do this first
+design_layer  { "layer": "donts" }      # your vibecoded-tells self-check catalogue
+design_layer  { "layer": "scaffolds" }  # occupancy-correct section scaffolds, pulled when composing
 generate_image { "prompt": "...", "out_path": "/abs/out/hero.png" }
 ```
 

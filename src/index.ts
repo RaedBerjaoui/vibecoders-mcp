@@ -205,10 +205,11 @@ Everything below is OPTIONAL — the server runs with no keys, no servers, and n
 provider CLIs. Add only what you want.
 
 • Design above Claude's defaults: building a UI, website, page, or component?
-  Call design_core FIRST for an elite, anti-generic design standard plus two
-  pre-build gates (derive everything from the brand, and make it alive), then
-  design_layer to pull deeper craft on demand (motion, type, the vibecoded tells
-  to avoid, the capability palette). Render imagery with generate_image.
+  Call design_core FIRST for the anti-AI-design RAG — the standard that makes the
+  output not read as AI-made and hold its formatting, the tells principle, and the
+  build non-negotiables — then design_layer to pull a deeper layer on demand
+  (donts tells, formatting laws, directives, scaffolds, type pointers). Render
+  imagery with generate_image.
 • Swallow other MCP servers: rather than dumping every downstream tool into
   context, call search_tools → load_tool → call_tool to find and run any tool on
   a mounted server on demand. Hundreds of tools cost almost no context.
