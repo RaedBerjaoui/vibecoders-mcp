@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Changed
+
+- **The Design RAG is now the anti-AI-design RAG.** `design_core` is reframed
+  around one job — make the output NOT read as AI-made and hold its formatting
+  across every screen — carrying the tells principle (displace the generative
+  BIAS, never the surface instance) and the build non-negotiables. The
+  `design_layer` menu is retired-and-replaced: the engine-era layers (`craft`,
+  `cards`, `capabilities`, `typography`, `standard`) are removed; the set is now
+  `donts` (the vibecoded-tells catalogue), `formatting`, `directives`,
+  `scaffolds`, `type_pointers`, and `image_gen`. The tool descriptions, the
+  server instructions, `scripts/build-rag-data.mjs`, and the enum↔data parity
+  test all move in lockstep.
+
+### Added
+
+- **`concise` skill** ships inside the plugin (`skills/concise/`): a standing
+  rule to answer conversational replies in concise, complete plain English,
+  reserving long structured output for real deliverables.
+
 ## [0.2.0]
 
 ### Added
@@ -55,5 +76,7 @@ optional all the way down, fail-closed.
 - **Claude Code plugin** — `.claude-plugin/plugin.json` + `.mcp.json` register
   the MCP server; a marketplace manifest enables `/plugin` install.
 
-[Unreleased]: https://github.com/vibecoders/vibecoders-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/vibecoders/vibecoders-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/vibecoders/vibecoders-mcp/releases/tag/v0.3.0
+[0.2.0]: https://github.com/vibecoders/vibecoders-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/vibecoders/vibecoders-mcp/releases/tag/v0.1.0
