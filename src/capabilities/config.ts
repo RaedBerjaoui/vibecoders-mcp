@@ -41,6 +41,7 @@ export const FEATURE_GROUPS = [
   { name: 'device', label: 'device', default: false },
   { name: 'vault', label: 'vault', default: false },
   { name: 'rag', label: 'design', default: true },
+  { name: 'skills', label: 'skills', default: true },
 ] as const;
 
 export type FeatureName = (typeof FEATURE_GROUPS)[number]['name'];
@@ -78,6 +79,18 @@ const schema = z.object({
     .optional(),
   /** Turn whole tool groups on/off. Shape + defaults DERIVED from FEATURE_GROUPS (T23). */
   features: z.object(featuresShape).partial().optional(),
+  /**
+   * Host adaptation — how the server tailors instructions + tool visibility to
+   * the driving MCP client. Both flat + optional (no unions, for Codex's schema
+   * converter). `force` pins a client family ('codex'|'claude'|'gemini', matched
+   * loosely); `adaptive:false` opts out entirely (treat every host as generic).
+   */
+  host: z
+    .object({
+      adaptive: z.boolean().optional(),
+      force: z.string().optional(),
+    })
+    .optional(),
   /** Guards for the reference (URL-study) tools. */
   reference: z
     .object({

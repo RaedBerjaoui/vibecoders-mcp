@@ -1,7 +1,12 @@
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  InitializeRequestSchema,
+  type InitializeRequest,
+  type InitializeResult,
+} from '@modelcontextprotocol/sdk/types.js';
 import { loadConfig, SECRETS, type SecretKey } from './config/env';
 import { loadServers, ToolIndex } from './gateway/registry';
 import { Connector } from './gateway/connector';
@@ -30,6 +35,10 @@ import { registerTasks } from './tasks/tools';
 import { registerDevice } from './device/tools';
 import { registerVault } from './vault/tools';
 import { registerRag } from './rag/tools';
+import { resolveHost } from './host/profile';
+import { instructionsFor, type InstructionsCtx } from './host/instructions';
+import { applyHostAdaptations } from './host/adapt';
+import { registerSkills } from './skills/tools';
 
 // Injected from package.json at build time (build.mjs esbuild `define`). The dev runner
 // (tsx, no define) leaves it undefined; `typeof` keeps that safe and falls back loudly.
@@ -78,6 +87,12 @@ export interface DoctorData {
   overlay?: string;
   /** CLI-only: whether dist/index.js is built. */
   build?: { present: boolean; path: string };
+  /** The driving MCP client, label + how we know it (e.g. "OpenAI Codex (detected)"). */
+  driver?: string;
+  /** How to make THIS host re-read the tool list after a config change. */
+  restartHint?: string;
+  /** Structured host identity for the JSON output. */
+  hostInfo?: { id: string; label: string; source: string };
 }
 
 /**
@@ -99,7 +114,7 @@ const onOff = (b: boolean): string => (b ? '✓ on' : '· off');
 
 /** Pure renderer: DoctorData → the human-readable doctor/status report. */
 export function renderDoctor(d: DoctorData): string {
-  const lines: string[] = ['Vibecoders — driver: Claude Code\n'];
+  const lines: string[] = [`Vibecoders — driver: ${d.driver ?? 'not connected'}\n`];
 
   // T34 — legend up top: the two enablement systems are disjoint. Only shown
   // when both systems are actually reported (the pre-registration CLI omits them).
@@ -149,7 +164,7 @@ export function renderDoctor(d: DoctorData): string {
     const off = d.toolGroups.filter((g) => !g.enabled).map((g) => g.name);
     if (off.length > 0) {
       lines.push(
-        `  Disabled (${off.join(', ')}) → turn on with: vibecoders config set features.${off[0]} true  (then restart Claude Code)`,
+        `  Disabled (${off.join(', ')}) → turn on with: vibecoders config set features.${off[0]} true  (then ${d.restartHint ?? 'restart your MCP client'})`,
       );
     }
   }
@@ -186,6 +201,7 @@ export function renderDoctorJson(d: DoctorData): {
   keys: DoctorKey[];
   toolGroups: DoctorGroup[];
   lane?: { label: string; handoff: string };
+  host?: { id: string; label: string; source: string };
   configured: boolean;
 } {
   return {
@@ -195,37 +211,10 @@ export function renderDoctorJson(d: DoctorData): {
     keys: d.keys,
     toolGroups: d.toolGroups,
     ...(d.lane ? { lane: d.lane } : {}),
+    ...(d.hostInfo ? { host: d.hostInfo } : {}),
     configured: isAnythingConfigured(d),
   };
 }
-
-const INSTRUCTIONS = `Vibecoders is an MCP control plane, built to be driven from Claude Code.
-
-Everything below is OPTIONAL — the server runs with no keys, no servers, and no
-provider CLIs. Add only what you want.
-
-• Design above Claude's defaults: building a UI, website, page, or component?
-  Call design_core FIRST for the anti-AI-design RAG — the standard that makes the
-  output not read as AI-made and hold its formatting, the tells principle, and the
-  build non-negotiables — then design_layer to pull a deeper layer on demand
-  (donts tells, formatting laws, directives, scaffolds, type pointers). Render
-  imagery with generate_image.
-• Swallow other MCP servers: rather than dumping every downstream tool into
-  context, call search_tools → load_tool → call_tool to find and run any tool on
-  a mounted server on demand. Hundreds of tools cost almost no context.
-• Delegate to other coding agents on YOUR subscription (not a metered API): call
-  list_providers, then delegate to hand a task to codex/gemini/claude via their
-  CLI. Read-only by default; pass mode:"write" to allow file edits. Pass
-  background:true to fire it without blocking and keep working; manage with
-  tasks_list / tasks_steer / tasks_interrupt.
-• Carry work across sessions: write_handoff / recall_handoff are isolated per
-  working lane (cwd + git branch), so concurrent sessions never mix.
-• Remember across sessions: memory_store / memory_recall / memory_walk are a
-  per-user RAG knowledge graph (lexical by default; semantic if you enable
-  embeddings with your own key). Store decisions/facts/gotchas and link them.
-• Orient fast: project_context returns this repo's branch, recent commits,
-  handoff, and the top memories for the project in one call.
-• doctor reports exactly what is configured right now.`;
 
 async function main(): Promise<void> {
   const config = await loadConfig();
@@ -245,6 +234,53 @@ async function main(): Promise<void> {
   const connector = new Connector(servers, resolveEnv, log, config.timeoutMs);
   const lane = computeLane();
   const vibeConfig = loadVibeConfig();
+
+  // Which MCP client is driving us. Boot-time is a best guess (config force / env
+  // pin are already authoritative here); the initialize handler below refines it
+  // from clientInfo. `let` because that handler reassigns it, and everything that
+  // reads `host` (doctor, delegate's restart hint, instructions) does so lazily.
+  let host = resolveHost({
+    force: vibeConfig.host?.force,
+    adaptive: vibeConfig.host?.adaptive,
+    env: process.env,
+  });
+
+  // The provider ids backing the two adaptable capabilities THIS session, resolved
+  // exactly like buildDoctorData (detectContext + pin + priority order). Host
+  // adaptation compares the .id (not the label) against known native engines.
+  const capabilityProviderIds = (): { imageProviderId?: string; searchProviderId?: string } => {
+    const ctx = detectContext((k) => config.has(k as SecretKey));
+    const resolveId = (capabilityId: string): string | undefined => {
+      const cap = CAPABILITIES.find((c) => c.id === capabilityId);
+      if (!cap) return undefined;
+      const res = resolveCapability(cap, ctx, pinnedProvider(vibeConfig, cap.id));
+      return res.status === 'ready' ? res.provider.id : undefined;
+    };
+    return { imageProviderId: resolveId('image_gen'), searchProviderId: resolveId('web_search') };
+  };
+
+  // Runtime facts the instructions builder needs beyond the static host profile.
+  // imageRedundant/searchRedundant mirror the exact conditions under which
+  // applyHostAdaptations HIDES generate_image / web_search, so the prose and the
+  // tool list never disagree.
+  const instructionsCtx = (): InstructionsCtx => {
+    const { imageProviderId, searchProviderId } = capabilityProviderIds();
+    return {
+      imageRedundant:
+        host.profile.native.imageGen &&
+        imageProviderId !== undefined &&
+        ['codex-cli', 'openai-api'].includes(imageProviderId),
+      searchRedundant:
+        host.profile.id === 'gemini-cli' &&
+        searchProviderId !== undefined &&
+        ['gemini-cli', 'gemini-api'].includes(searchProviderId),
+      skillsEnabled: featureEnabled(vibeConfig, 'skills'),
+      memoryEnabled: featureEnabled(vibeConfig, 'memory'),
+      ragEnabled: featureEnabled(vibeConfig, 'rag'),
+      tasksEnabled: featureEnabled(vibeConfig, 'tasks'),
+    };
+  };
+
   const memoryLine = (): string => {
     if (!featureEnabled(vibeConfig, 'memory')) return 'Memory: off (features.memory=false)';
     let count = 0;
@@ -286,17 +322,33 @@ async function main(): Promise<void> {
       lane: { label: lane.label, handoff: handoffPath(lane) },
       memory: memoryLine(),
       overlay: overlay ? overlayStatusLine(overlay) : 'Private overlay: load error (see server logs)',
+      // How we know the driver: clientInfo = detected from the handshake; env/config
+      // = the operator pinned it; default = nobody's connected / unrecognized.
+      driver:
+        host.profile.label +
+        (host.source === 'clientInfo'
+          ? ' (detected)'
+          : host.source === 'env' || host.source === 'config'
+            ? ' (pinned)'
+            : ''),
+      restartHint: host.profile.restartHint,
+      hostInfo: { id: host.profile.id, label: host.profile.label, source: host.source },
     };
   };
 
   const server = new McpServer(
     { name: 'vibecoders', version: VERSION },
-    { instructions: INSTRUCTIONS },
+    { instructions: instructionsFor(host.profile, instructionsCtx()) },
   );
+
+  // Tool handles gathered from each register* call, so the initialize handler can
+  // adapt visibility/descriptions to the driving client before its first
+  // tools/list. Undefined entries (feature off) are skipped by the adapter.
+  const toolHandles: Record<string, RegisteredTool | undefined> = {};
 
   // Native, secret-free status tool. Everything it reports is optional. Pass
   // json:true for the structured, scriptable variant (T32).
-  server.registerTool(
+  const doctorTool = server.registerTool(
     'doctor',
     {
       description:
@@ -310,11 +362,15 @@ async function main(): Promise<void> {
         : text(renderDoctor(data));
     },
   );
+  toolHandles.doctor = doctorTool;
 
   const tasksEnabled = featureEnabled(vibeConfig, 'tasks');
   const taskRegistry = tasksEnabled ? createTaskRegistry() : undefined;
-  registerProviders(server, { log, tasks: taskRegistry });
-  registerCapabilities(server, resolveEnv, log);
+  Object.assign(
+    toolHandles,
+    registerProviders(server, { log, tasks: taskRegistry, getHost: () => host.profile }),
+  );
+  Object.assign(toolHandles, registerCapabilities(server, resolveEnv, log));
   registerGateway(server, servers, connector, index, log);
   registerLanes(server, lane);
   if (featureEnabled(vibeConfig, 'memory')) {
@@ -330,13 +386,46 @@ async function main(): Promise<void> {
     registerTasks(server, { tasks: taskRegistry!, log });
   }
   if (featureEnabled(vibeConfig, 'device')) {
-    registerDevice(server, { log });
+    Object.assign(toolHandles, registerDevice(server, { log }));
   }
   if (featureEnabled(vibeConfig, 'vault')) {
     registerVault(server, { config: vibeConfig.vault ?? {}, log });
   }
   if (featureEnabled(vibeConfig, 'rag')) {
     registerRag(server, { log });
+  }
+  if (featureEnabled(vibeConfig, 'skills')) {
+    Object.assign(toolHandles, registerSkills(server, { getHost: () => host.profile, log }));
+  }
+
+  // Per-client adaptation, applied inside the initialize handshake. We DELEGATE to
+  // the SDK's own _oninitialize (bound before we override) so protocol negotiation
+  // AND clientInfo storage (getClientVersion) still happen; then we refine `host`
+  // from the just-received clientInfo, adapt the registered tools + the instructions
+  // string, and return the SDK's result with our per-host instructions. Everything
+  // is synchronous: Codex caches the tool list per session and ignores
+  // tools/list_changed, so visibility must be settled before this returns.
+  const rawServer = server.server as unknown as {
+    _oninitialize?: (req: InitializeRequest) => Promise<InitializeResult>;
+  };
+  if (typeof rawServer._oninitialize === 'function') {
+    const inner = rawServer._oninitialize.bind(server.server);
+    server.server.setRequestHandler(InitializeRequestSchema, async (request) => {
+      const result = await inner(request);
+      host = resolveHost(
+        { force: vibeConfig.host?.force, adaptive: vibeConfig.host?.adaptive, env: process.env },
+        request.params.clientInfo,
+      );
+      for (const change of applyHostAdaptations(host.profile, toolHandles, capabilityProviderIds())) {
+        log.info(`[host] ${change}`);
+      }
+      log.info(
+        `[host] driving client: ${host.profile.label} (${host.source}${host.clientName ? `: ${host.clientName}` : ''})`,
+      );
+      return { ...result, instructions: instructionsFor(host.profile, instructionsCtx()) };
+    });
+  } else {
+    log.warn('[host] SDK _oninitialize not found — static instructions, degraded adaptivity');
   }
 
   // Private overlay: owner-local BYO capability modules (never shipped). Generic,

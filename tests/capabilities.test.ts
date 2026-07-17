@@ -196,6 +196,48 @@ describe('feature flags (tasks / device / vault)', () => {
     expect(featureEnabled(cfg, 'tasks')).toBe(false);
     rmSync(p, { force: true });
   });
+
+  it('defaults the new skills group ON (curated playbooks are a core surface)', () => {
+    const cfg = loadVibeConfig(join(tmpdir(), 'definitely-missing-skills-config.json'));
+    expect(featureEnabled(cfg, 'skills')).toBe(true);
+  });
+
+  it('lets config.json turn skills off', () => {
+    const p = mkPath();
+    writeFileSync(p, JSON.stringify({ features: { skills: false } }));
+    expect(featureEnabled(loadVibeConfig(p), 'skills')).toBe(false);
+    rmSync(p, { force: true });
+  });
+});
+
+// Host adaptation config — a flat, optional block (no unions) so Codex's schema
+// converter is happy. `force` pins a client family; `adaptive:false` opts out.
+describe('host adaptation config (VibeConfig.host)', () => {
+  const mkPath = () => join(mkdtempSync(join(tmpdir(), 'vibe-host-')), 'config.json');
+
+  it('parses host.force and host.adaptive through the schema', () => {
+    const p = mkPath();
+    writeFileSync(p, JSON.stringify({ host: { force: 'codex', adaptive: true } }));
+    const cfg = loadVibeConfig(p);
+    expect(cfg.host?.force).toBe('codex');
+    expect(cfg.host?.adaptive).toBe(true);
+    rmSync(p, { force: true });
+  });
+
+  it('leaves host undefined when the config omits it', () => {
+    const cfg = loadVibeConfig(join(tmpdir(), 'definitely-missing-host-config.json'));
+    expect(cfg.host).toBeUndefined();
+  });
+
+  it('strips an unknown key under host (same non-throwing strictness as the rest of the schema)', () => {
+    const p = mkPath();
+    writeFileSync(p, JSON.stringify({ host: { force: 'gemini', bogusKey: 123 } }));
+    const cfg = loadVibeConfig(p);
+    // Known key survives; the unknown one is stripped rather than retained or fatal.
+    expect(cfg.host?.force).toBe('gemini');
+    expect((cfg.host as Record<string, unknown>).bogusKey).toBeUndefined();
+    rmSync(p, { force: true });
+  });
 });
 
 // T23 — one ordered source of truth for the toggleable feature groups. The Zod
@@ -212,8 +254,9 @@ describe('FEATURE_GROUPS (single source of truth)', () => {
       'device',
       'vault',
       'rag',
+      'skills',
     ]);
-    // memory/reference/projectContext/tasks ON; device/vault OFF (opt-in personal data).
+    // memory/reference/projectContext/tasks/rag/skills ON; device/vault OFF (opt-in personal data).
     expect(Object.fromEntries(FEATURE_GROUPS.map((g) => [g.name, g.default]))).toEqual({
       memory: true,
       reference: true,
@@ -222,6 +265,7 @@ describe('FEATURE_GROUPS (single source of truth)', () => {
       device: false,
       vault: false,
       rag: true,
+      skills: true,
     });
     // Every group carries a human label for the doctor status line.
     expect(FEATURE_GROUPS.every((g) => typeof g.label === 'string' && g.label.length > 0)).toBe(true);
@@ -236,6 +280,7 @@ describe('FEATURE_GROUPS (single source of truth)', () => {
       device: false,
       vault: false,
       rag: true,
+      skills: true,
     });
     // Keys of FEATURE_DEFAULTS are exactly the group names.
     expect(Object.keys(FEATURE_DEFAULTS).sort()).toEqual(

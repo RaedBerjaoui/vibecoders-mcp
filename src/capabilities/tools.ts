@@ -6,7 +6,7 @@
  */
 import { z } from 'zod';
 import { isAbsolute } from 'node:path';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { text, errorText } from '../util/mcp';
 import type { Logger } from '../util/logger';
 import { getCapability } from './registry';
@@ -24,10 +24,10 @@ export function registerCapabilities(
   server: McpServer,
   getSecret: (key: string) => string | undefined,
   log: Logger,
-): void {
+): Record<string, RegisteredTool> {
   const hasSecret = (key: string): boolean => Boolean(getSecret(key));
 
-  server.registerTool(
+  const generateImage = server.registerTool(
     'generate_image',
     {
       description:
@@ -74,7 +74,7 @@ export function registerCapabilities(
     },
   );
 
-  server.registerTool(
+  const webSearch = server.registerTool(
     'web_search',
     {
       description:
@@ -114,6 +114,10 @@ export function registerCapabilities(
       return r.ok ? text(formatSearch(r, res.provider.label)) : errorText(r.message);
     },
   );
+
+  // Returned so the host-adaptation pass (src/host/adapt.ts) can hide/reframe
+  // these tools in the initialize handler, before the client's first tools/list.
+  return { generate_image: generateImage, web_search: webSearch };
 }
 
 /** Render a SearchResult as readable text: optional answer, then a numbered list. */

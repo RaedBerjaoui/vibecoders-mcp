@@ -10,7 +10,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { text, errorText } from '../util/mcp';
 import type { Logger } from '../util/logger';
@@ -143,9 +143,9 @@ export interface DeviceDeps {
   log: Logger;
 }
 
-export function registerDevice(server: McpServer, deps: DeviceDeps): void {
+export function registerDevice(server: McpServer, deps: DeviceDeps): Record<string, RegisteredTool> {
   const { log } = deps;
-  server.registerTool(
+  const deviceSearch = server.registerTool(
     'device_search',
     {
       description:
@@ -170,7 +170,7 @@ export function registerDevice(server: McpServer, deps: DeviceDeps): void {
     },
   );
 
-  server.registerTool(
+  const chatHistorySearch = server.registerTool(
     'chat_history_search',
     {
       description:
@@ -191,4 +191,6 @@ export function registerDevice(server: McpServer, deps: DeviceDeps): void {
       }
     },
   );
+
+  return { device_search: deviceSearch, chat_history_search: chatHistorySearch };
 }

@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { availableProviders, getProvider } from './registry';
 import { runDelegate } from './delegate';
 import { text, errorText } from '../util/mcp';
 import type { Logger } from '../util/logger';
 import type { TaskRegistry } from '../tasks/registry';
+import type { HostProfile } from '../host/profile';
 
 /** A one-line-per-provider summary of what's installed and how it bills. */
 export function summarizeProviders(): string {
@@ -23,10 +24,10 @@ export function summarizeProviders(): string {
  */
 export function registerProviders(
   server: McpServer,
-  deps: { log: Logger; tasks?: TaskRegistry },
-): void {
-  const { log, tasks } = deps;
-  server.registerTool(
+  deps: { log: Logger; tasks?: TaskRegistry; getHost?: () => HostProfile },
+): Record<string, RegisteredTool> {
+  const { log, tasks, getHost } = deps;
+  const listProviders = server.registerTool(
     'list_providers',
     {
       description:
@@ -35,7 +36,7 @@ export function registerProviders(
     async () => text(summarizeProviders()),
   );
 
-  server.registerTool(
+  const delegate = server.registerTool(
     'delegate',
     {
       description:
@@ -68,7 +69,7 @@ export function registerProviders(
       if (background) {
         if (!tasks)
           return errorText(
-            'Background delegation is disabled. Enable it with: vibecoders config set features.tasks true (then restart Claude Code).',
+            `Background delegation is disabled. Enable it with: vibecoders config set features.tasks true (then ${getHost?.().restartHint ?? 'restart your MCP client'}).`,
           );
         const id = tasks.start(def, prompt, { mode, model, cwd });
         log.info(`delegate → ${provider} (${mode ?? 'read'}) [background ${id}]`);
@@ -81,4 +82,7 @@ export function registerProviders(
       return r.ok ? text(r.output) : errorText(r.output);
     },
   );
+
+  // Returned so the host-adaptation pass can append a per-host delegation note.
+  return { list_providers: listProviders, delegate };
 }

@@ -95,6 +95,28 @@ describe('vibecoders server (end-to-end over stdio)', () => {
     }
   }, 20000);
 
+  it('adapts the initialize instructions to the driving client (clientInfo → Codex)', async () => {
+    // End-to-end proof that the initialize override delegates to the SDK's
+    // _oninitialize (so clientInfo is stored) AND rewrites the instructions per
+    // host: a client that names itself codex-* gets the OpenAI Codex surface.
+    const home = mkdtempSync(join(tmpdir(), 'vibe-home-'));
+    const transport = new StdioClientTransport({
+      command: 'node',
+      args: [serverPath],
+      env: { ...process.env, VIBECODERS_LOG_LEVEL: 'error', VIBECODERS_HOME: home } as Record<string, string>,
+    });
+    // A Codex-family client name (matched loosely, case-insensitively).
+    const client = new Client({ name: 'codex-mcp-client', version: '0.0.0' });
+    try {
+      await client.connect(transport);
+      const info = client.getInstructions();
+      expect(info).toContain('Driving client: OpenAI Codex');
+    } finally {
+      await client.close().catch(() => {});
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 20000);
+
   it('reports the package.json version in its MCP handshake (single source of truth)', async () => {
     // The handshake version must track package.json — not a hand-kept literal that drifts.
     const home = mkdtempSync(join(tmpdir(), 'vibe-home-'));

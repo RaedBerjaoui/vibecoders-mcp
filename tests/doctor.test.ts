@@ -100,6 +100,34 @@ describe('renderDoctor (T28 — shared text renderer)', () => {
   });
 });
 
+// Host-adaptive: the first line names the driving client, and the disabled-groups
+// hint uses THAT host's restart instruction (Codex caches the tool list per
+// session, so "restart" is wrong there). Both degrade to safe generics.
+describe('renderDoctor — host driver line + restart hint', () => {
+  it('renders the driver from data (label + detection/pin suffix)', () => {
+    const out = renderDoctor({
+      ...full,
+      driver: 'OpenAI Codex (detected)',
+      restartHint: 'start a new Codex session (Codex caches the tool list per session)',
+    });
+    expect(out).toContain('driver: OpenAI Codex (detected)');
+  });
+
+  it('falls back to "not connected" when no driver is provided', () => {
+    expect(renderDoctor(full)).toContain('driver: not connected');
+  });
+
+  it('uses the host restartHint in the disabled-tool-groups hint', () => {
+    // `full` has device off → the "turn on with … (then …)" hint renders.
+    const out = renderDoctor({ ...full, restartHint: 'start a new Codex session' });
+    expect(out).toMatch(/then start a new Codex session/);
+  });
+
+  it('falls back to a generic restart hint when none is provided', () => {
+    expect(renderDoctor(full)).toMatch(/then restart your MCP client/);
+  });
+});
+
 describe('renderDoctor — T33 all-empty next step', () => {
   it('appends ONE prioritized call-to-action when nothing is configured', () => {
     const out = renderDoctor(empty);
@@ -130,5 +158,17 @@ describe('renderDoctorJson (T32 — structured output)', () => {
   it('flags the all-empty state so a script can detect "configure something"', () => {
     expect(renderDoctorJson(empty).configured).toBe(false);
     expect(renderDoctorJson(full).configured).toBe(true);
+  });
+
+  it('passes through the structured host block when hostInfo is provided', () => {
+    const j = renderDoctorJson({
+      ...full,
+      hostInfo: { id: 'codex', label: 'OpenAI Codex', source: 'clientInfo' },
+    });
+    expect(j.host).toEqual({ id: 'codex', label: 'OpenAI Codex', source: 'clientInfo' });
+  });
+
+  it('omits the host block when hostInfo is absent', () => {
+    expect(renderDoctorJson(full)).not.toHaveProperty('host');
   });
 });
