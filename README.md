@@ -1,17 +1,19 @@
 # Vibecoders MCP
 
-**One MCP that turns Claude Code into your whole dev stack.** It swallows every
+**One MCP that turns your coding agent into your whole dev stack.** It swallows every
 other MCP server, delegates to Codex & Gemini on *your* CLI subscriptions (not a
 metered API), remembers your projects in a searchable knowledge graph, and
 carries your setup across sessions — **secret-free by design, and optional all
 the way down.**
 
-> Built to optimize vibecoding with **Claude Code as the driver**. Claude stays
-> in charge; Vibecoders gives it superpowers: reach any other MCP server, hand
-> work to Codex/Gemini on the plans you already pay for, remember decisions
-> across sessions, orient in a repo instantly, design interfaces that escape its own generic defaults, and study any reference on the
-> web. Nothing is required to start — no keys, no servers, no CLIs. Add only what
-> you want. **Every key is always yours; Vibecoders ships and bills none.**
+> Built to optimize vibecoding with **whichever client is driving: Claude Code,
+> Codex, or Gemini CLI**. The client stays in charge; Vibecoders gives it
+> superpowers: reach any other MCP server, hand work to Codex/Gemini/Claude on the
+> plans you already pay for, remember decisions across sessions, orient in a repo
+> instantly, design interfaces that escape its own generic defaults, and study any
+> reference on the web. Nothing is required to start — no keys, no servers, no
+> CLIs. Add only what you want. **Every key is always yours; Vibecoders ships and
+> bills none.**
 
 ## Quick start (~1 minute, zero config)
 
@@ -32,20 +34,72 @@ npm link
 > Prefer not to link? Skip this step and run every `vibecoders <command>` below
 > as `node bin/vibecoders.mjs <command>` from the repo instead.
 
-**3. Register it with Claude Code** (point at the absolute path):
+**3. Register it with your client** (Claude Code shown; full matrix below):
 
 ```bash
 claude mcp add vibecoders -s user -- node "$(pwd)/dist/index.js"
 ```
 
 `-s user` registers it once for **every** project (drop it to scope to just this
-directory). That's it — it runs with **no keys and no setup**. Ask Claude to run
+directory). That's it — it runs with **no keys and no setup**. Ask your agent to run
 `doctor` and it will show you exactly what's available and what's optional. The
 MCP `doctor` and the `vibecoders doctor` CLI share one renderer, so they report
 the same sections; pass `{json:true}` (MCP) or `--json` (CLI) for structured,
 scriptable output.
 
-> Config changes and rebuilds take effect on the next Claude Code restart.
+> Config changes and rebuilds take effect on your next client restart.
+
+## Works with Claude Code, Codex, and Gemini CLI
+
+One server, three clients. Vibecoders detects the client driving it and tailors
+itself to that client, all inside the `initialize` handshake (before the first
+`tools/list`, because Codex ignores `tools/list_changed`).
+
+**Detection precedence.** Config `host.force` wins first, then env
+`VIBECODERS_CLIENT`, then the `initialize` handshake's `clientInfo` (a coarse
+family match to Codex, Claude Code, or Gemini CLI), then a neutral fallback. Set
+`host.adaptive: false` to turn adaptation off entirely.
+
+```json
+{ "host": { "force": "codex", "adaptive": false } }
+```
+
+**What adapts to the driver.**
+
+- **Instructions.** Per-host and self-contained, with a core kept under 512
+  characters, because Codex folds the server instructions into every tool's
+  namespace description.
+- **Tool visibility.** `generate_image` hides under Codex when the image provider
+  is Codex's own engine; `web_search` hides under Gemini CLI on gemini engines.
+- **Tool descriptions.** `delegate` and `web_search` gain per-host advice (under
+  Codex, prefer `background:true`, whose foreground MCP calls time out near 60s).
+- **`doctor`.** A driver line, host-aware restart hints, and a host block in its
+  JSON output.
+- **Approvals.** Every tool carries MCP annotations (`readOnlyHint`,
+  `destructiveHint`, `openWorldHint`); under Codex, read-only tools auto-proceed
+  and destructive ones always prompt.
+
+**Install per client.** Build once (`npm install && npm run build`), then point
+each client at the absolute `dist/index.js`:
+
+```bash
+# Claude Code
+claude mcp add vibecoders -s user -- node "$(pwd)/dist/index.js"
+# Codex
+codex mcp add vibecoders -- node "$(pwd)/dist/index.js"
+# Gemini CLI
+gemini mcp add vibecoders node "$(pwd)/dist/index.js"
+```
+
+Or register all at once: `vibecoders register --client claude|codex|gemini|all`.
+
+Under Codex, raise the per-call timeout or long `delegate` runs get killed at the
+60s default. Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.vibecoders]
+tool_timeout_sec = 1200
+```
 
 ## The tool surface at a glance
 
@@ -65,6 +119,7 @@ is always on.
 | **Research — reference** | `reference_inspect` · `reference_excerpt` · `reference_read_source` | tool group `features.reference` (on) |
 | **Generate** | `generate_image` | **capability** — configure a provider (codex CLI, or OpenAI/Gemini key) |
 | **Design RAG** (escape generic defaults; bring-your-own content) | `design_core` · `design_layer` | tool group `features.rag` (on) |
+| **Skills** (curated playbooks) | `skill_list` · `skill_load` | tool group `features.skills` (on) |
 | **Handoffs** (per lane) | `write_handoff` · `recall_handoff` | always on |
 | **Device** (opt-in · macOS) | `device_search` · `chat_history_search` | tool group `features.device` (off) |
 | **Notes vault** (opt-in) | `vault_search` · `vault_read` | tool group `features.vault` (off) |
@@ -196,10 +251,10 @@ vibecoders config set features.vault true
 vibecoders config set vault.dir ~/notes      # your notes directory
 ```
 
-### 8. Design like the best: escape Claude's generic defaults
+### 8. Design like the best: escape generic AI defaults
 
 `design_core` and `design_layer`: the anti-AI-design RAG — a design-intelligence
-layer that lifts Claude's UI, website, and component output above the generic,
+layer that lifts the model's UI, website, and component output above the generic,
 templated, unmistakably-AI look it reaches for by default. **On by default**
 (`features.rag`), and **bring-your-own content**: this package ships the
 capability, not the knowledge. The tools load their content at startup from
@@ -233,6 +288,33 @@ design_layer  { "layer": "scaffolds" }  # occupancy-correct section scaffolds, p
 generate_image { "prompt": "...", "out_path": "/abs/out/hero.png" }
 ```
 
+## Skills
+
+Curated, action-language playbooks the driver pulls on demand, so the steps for a
+task are in context exactly when the task starts. Two tools, `features.skills`, on
+by default:
+
+- **`skill_list`** lists the available skills with their one-line descriptions.
+- **`skill_load`** loads one skill's body, with a per-host appendix so the steps
+  name the driving client's real tools (Claude Code names, or Codex
+  `shell`/`apply_patch`/`spawn_agent`/`update_plan`).
+
+**The nine bundled skills:**
+
+- **`concise`**: answer conversational replies in concise, complete plain English.
+- **`debugging`**: root-cause discipline before you propose or write a fix.
+- **`tdd`**: the red/green/refactor test-first loop.
+- **`verification`**: evidence before you claim done, fixed, or passing.
+- **`planning`**: write a plan a zero-context engineer could execute.
+- **`parallel-work`**: fan work out across agents safely.
+- **`code-review`**: review a diff for what breaks, not what looks off.
+- **`security-review`**: a security sweep before shipping anything network-facing.
+- **`design`**: the anti-generic-AI entry point for any UI or visual work.
+
+Bodies load from the repo's `skills/` plus a user directory: `~/.vibecoders/skills`
+overrides a bundled skill by slug, and `VIBECODERS_SKILLS_DIR` pins a directory of
+your own. Skills **complement, not replace**, a client's native skill system.
+
 ## Customize everything
 
 All non-secret behavior lives in `~/.vibecoders/config.json` (git-ignored). Copy
@@ -253,7 +335,7 @@ defaults → `config.json` → environment variables.
 
 ## Reference setup (how the author runs it)
 
-Vibecoders is built to be driven from **[Claude Code](https://claude.com/claude-code)**, and the reference environment it's designed against is the **[Warp](https://www.warp.dev)** terminal. For a concrete starting point, here's the author's own configuration — every entry is a *tool/provider choice*, **never a secret** (keys, when needed at all, live in the Keychain or `.env`, never in the repo):
+Vibecoders runs under Claude Code, Codex, or Gemini CLI; the author drives it from **[Claude Code](https://claude.com/claude-code)** in the **[Warp](https://www.warp.dev)** terminal, the reference environment it's designed against. For a concrete starting point, here's the author's own configuration — every entry is a *tool/provider choice*, **never a secret** (keys, when needed at all, live in the Keychain or `.env`, never in the repo):
 
 | Capability | What the author uses | Wire it up |
 |---|---|---|
@@ -284,7 +366,7 @@ Recognized keys (all optional): `OPENAI_API_KEY`, `GEMINI_API_KEY`, `BRAVE_API_K
 `SUPABASE_ACCESS_TOKEN`.
 
 ## Install as a plugin (MCP server)
-This repo is also a Claude Code **plugin**. `.claude-plugin/plugin.json` is the
+This repo is also a Claude Code **plugin** (Codex and Gemini CLI install with their own `mcp add`; see [Works with Claude Code, Codex, and Gemini CLI](#works-with-claude-code-codex-and-gemini-cli) above). `.claude-plugin/plugin.json` is the
 manifest, `.claude-plugin/marketplace.json` lists it as a one-plugin marketplace,
 and `.mcp.json` registers the MCP server — all auto-discovered on install.
 
@@ -328,7 +410,7 @@ gateway; Vibecoders bundles none of it.
 | Command | What it does |
 | --- | --- |
 | `vibecoders init` | Build `dist/index.js` and print status |
-| `vibecoders register` | Add this server to Claude Code (user scope) |
+| `vibecoders register` | Register this server with a client (`--client claude\|codex\|gemini\|all`) |
 | `vibecoders onboard` | Guided setup + status |
 | `vibecoders setup [capability]` | Guided, read-only per-capability walkthrough |
 | `vibecoders doctor [--json]` | Show providers, servers, keys, tool groups, memory, and your lane (same renderer as the MCP `doctor`); `--json` emits structured output for scripts/CI |

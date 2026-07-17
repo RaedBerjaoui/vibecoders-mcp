@@ -1,7 +1,7 @@
 {
   "name": "vibecoders",
-  "version": "0.3.0",
-  "description": "An MCP control plane for Claude Code: swallow other MCP servers through one gateway, delegate to Codex/Gemini/Claude on your own CLI subscriptions, plus a RAG memory graph, reference study, and cross-session handoffs. Optional all the way down, secret-free, fail-closed.",
+  "version": "0.4.0",
+  "description": "An MCP control plane for Claude Code: swallow other MCP servers through one gateway, delegate to Codex/Gemini/Claude on your own CLI subscriptions, plus a RAG memory graph, reference study, and cross-session handoffs. Optional all the way down, secret-free, fail-closed. Works with Claude Code, Codex, and Gemini CLI.",
   "author": {
     "name": "Vibecoders"
   },

@@ -1,7 +1,7 @@
 {
   "name": "vibecoders-mcp",
-  "version": "0.3.0",
-  "description": "One MCP for Claude Code that swallows other MCP servers and delegates to Codex & Gemini on your CLI subscriptions — secret-free by design.",
+  "version": "0.4.0",
+  "description": "One MCP control plane for Claude Code, Codex, and Gemini CLI: swallows other MCP servers, delegates across model CLIs on your subscriptions, and adapts to whichever client is driving. Secret-free by design.",
   "type": "module",
   "license": "MIT",
   "author": "Vibecoders",
@@ -14,7 +14,9 @@
     "gemini",
     "gateway",
     "ai",
-    "cli"
+    "cli",
+    "multi-client",
+    "skills"
   ],
   "repository": {
     "type": "git",

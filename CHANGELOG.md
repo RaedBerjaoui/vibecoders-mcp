@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Added
+
+- **Host adaptivity: one server, three clients.** Vibecoders resolves the
+  driving MCP client and tailors itself to it. Resolution order: config
+  `host.force`, then env `VIBECODERS_CLIENT`, then the `initialize` handshake's
+  `clientInfo` (coarse family match to Codex, Claude Code, or Gemini CLI), then
+  a neutral fallback; `host.adaptive: false` turns adaptation off entirely. What
+  adapts: the server instructions (per-host and self-contained, with a core kept
+  under 512 characters because Codex folds instructions into every tool's
+  namespace description); tool visibility (`generate_image` is hidden under Codex
+  when the image provider is Codex's own engine, `web_search` is hidden under
+  Gemini CLI on gemini engines); tool descriptions (`delegate` gains per-host
+  advice, such as preferring `background:true` under Codex, whose foreground MCP
+  calls time out near 60s); and `doctor` (a driver line, host-aware restart
+  hints, and a host block in its JSON). All of it happens inside the
+  `initialize` handshake, before the first `tools/list`, because Codex ignores
+  `tools/list_changed`.
+- **Skills: curated playbooks, loaded on demand.** New `skill_list` and
+  `skill_load` tools (`features.skills`, on by default) serve action-language
+  playbooks: `debugging`, `tdd`, `verification`, `planning`, `parallel-work`,
+  `code-review`, `security-review`, and `design`, alongside the existing
+  `concise`. Bodies load from the repo's `skills/` plus a user directory
+  (`~/.vibecoders/skills` overrides same-named skills; `VIBECODERS_SKILLS_DIR`
+  pins a directory). The loader appends a per-host tool-name appendix so the
+  steps name the driving client's real tools (Claude Code names, or Codex
+  `shell`/`apply_patch`/`spawn_agent`/`update_plan`). Original distillations;
+  provenance in `NOTICE.md`. Skills complement, not replace, a client's native
+  skill system.
+- **MCP annotations on every tool.** Each tool now carries `readOnlyHint`,
+  `destructiveHint`, and `openWorldHint`. Under Codex these drive the approval
+  prompt: read-only tools auto-proceed, destructive ones always ask.
+- **Multi-client CLI register.** `vibecoders register --client
+  claude|codex|gemini|all` registers with each client's own command. Codex runs
+  `codex mcp add vibecoders -- node <dist>` and tips you to raise
+  `tool_timeout_sec = 1200` under `[mcp_servers.vibecoders]` in
+  `~/.codex/config.toml`; Gemini runs `gemini mcp add vibecoders node <dist>`.
+  The CLI now knows the `features.skills` and `host.*` config keys, and
+  `config.example.json` shows all eight feature groups plus the `host` key.
+
+### Fixed
+
+- **`features.rag` CLI drift.** The CLI now recognizes `features.rag` (and
+  `features.skills`) as known config keys, and its status header no longer
+  claims a driver.
+
 ## [0.3.0]
 
 ### Changed
@@ -76,7 +123,8 @@ optional all the way down, fail-closed.
 - **Claude Code plugin** — `.claude-plugin/plugin.json` + `.mcp.json` register
   the MCP server; a marketplace manifest enables `/plugin` install.
 
-[Unreleased]: https://github.com/vibecoders/vibecoders-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/vibecoders/vibecoders-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/vibecoders/vibecoders-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/vibecoders/vibecoders-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/vibecoders/vibecoders-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/vibecoders/vibecoders-mcp/releases/tag/v0.1.0

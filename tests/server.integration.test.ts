@@ -14,6 +14,40 @@ const pkgVersion = JSON.parse(
 const textOf = (res: unknown): string =>
   ((res as { content?: Array<{ text?: string }> }).content ?? []).map((c) => c.text ?? '').join('\n');
 
+/**
+ * Boot one fresh server over stdio under a given Client name/env/config, run the
+ * assertions, then always close the client and delete its tmp home — the same
+ * connect/close discipline the inline tests use, centralized so each host-matrix
+ * case is one cheap boot with no hanging handles. When `config` is given it is
+ * written to `$VIBECODERS_HOME/config.json` (the resolution path loadVibeConfig
+ * falls back to when VIBECODERS_CONFIG is unset), so we drop any ambient pin.
+ */
+async function withClient(
+  opts: { name: string; env?: Record<string, string>; config?: unknown },
+  fn: (client: Client) => Promise<void>,
+): Promise<void> {
+  const home = mkdtempSync(join(tmpdir(), 'vibe-home-'));
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    VIBECODERS_LOG_LEVEL: 'error',
+    VIBECODERS_HOME: home,
+    ...opts.env,
+  };
+  if (opts.config !== undefined) {
+    writeFileSync(join(home, 'config.json'), JSON.stringify(opts.config));
+    delete env.VIBECODERS_CONFIG; // force resolution to $VIBECODERS_HOME/config.json
+  }
+  const transport = new StdioClientTransport({ command: 'node', args: [serverPath], env });
+  const client = new Client({ name: opts.name, version: '0.0.0' });
+  try {
+    await client.connect(transport);
+    await fn(client);
+  } finally {
+    await client.close().catch(() => {});
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 describe('vibecoders server (end-to-end over stdio)', () => {
   it('starts, completes the MCP handshake, and exposes its tools', async () => {
     const home = mkdtempSync(join(tmpdir(), 'vibe-home-'));
@@ -62,6 +96,10 @@ describe('vibecoders server (end-to-end over stdio)', () => {
       const info = client.getInstructions();
       expect(info).toMatch(/search_tools/);
       expect(info).toMatch(/delegate/);
+      // Host matrix (unknown client): 'integration-test' matches no host family, so
+      // the instructions carry NO "Driving client:" line (that's added only for a
+      // recognized host).
+      expect(info).not.toContain('Driving client:');
 
       // Behavioral: memory store → recall round-trips (lexical, no keys needed).
       await client.callTool({
@@ -80,6 +118,9 @@ describe('vibecoders server (end-to-end over stdio)', () => {
       expect(doctor).toMatch(/Capabilities \(configure a provider\)/); // T34 legend line
       expect(doctor).toMatch(/Disabled \(device, vault\)/); // opt-in groups advertise how to enable
       expect(doctor).toContain('Private overlay:');
+      // Host matrix (unknown client): the driver is labeled generically, with no
+      // (detected)/(pinned) suffix (source is 'default').
+      expect(doctor).toContain('driver: this MCP client');
 
       // T32 — structured doctor output is scriptable and JSON-parseable.
       const doctorJson = textOf(await client.callTool({ name: 'doctor', arguments: { json: true } }));
@@ -95,26 +136,81 @@ describe('vibecoders server (end-to-end over stdio)', () => {
     }
   }, 20000);
 
-  it('adapts the initialize instructions to the driving client (clientInfo → Codex)', async () => {
+  it('host matrix: Codex client (clientInfo) — instructions, tools, doctor, annotations, skill_load', async () => {
     // End-to-end proof that the initialize override delegates to the SDK's
-    // _oninitialize (so clientInfo is stored) AND rewrites the instructions per
-    // host: a client that names itself codex-* gets the OpenAI Codex surface.
-    const home = mkdtempSync(join(tmpdir(), 'vibe-home-'));
-    const transport = new StdioClientTransport({
-      command: 'node',
-      args: [serverPath],
-      env: { ...process.env, VIBECODERS_LOG_LEVEL: 'error', VIBECODERS_HOME: home } as Record<string, string>,
-    });
-    // A Codex-family client name (matched loosely, case-insensitively).
-    const client = new Client({ name: 'codex-mcp-client', version: '0.0.0' });
-    try {
-      await client.connect(transport);
-      const info = client.getInstructions();
+    // _oninitialize (so clientInfo is stored) AND adapts per host: a client that
+    // names itself codex-* gets the OpenAI Codex surface, visible on every wire.
+    await withClient({ name: 'codex-mcp-client' }, async (client) => {
+      // (a) The instructions name the driving client as OpenAI Codex.
+      const info = client.getInstructions() ?? '';
       expect(info).toContain('Driving client: OpenAI Codex');
-    } finally {
-      await client.close().catch(() => {});
-      rmSync(home, { recursive: true, force: true });
-    }
+      // (b) The dense first-512-char core (all Codex reliably reads) leads with design_core.
+      expect(info.slice(0, 512)).toContain('design_core');
+      // (c) The skills group is exposed (on by default; never hidden under Codex).
+      const tools = (await client.listTools()).tools;
+      const names = tools.map((t) => t.name);
+      expect(names).toContain('skill_list');
+      expect(names).toContain('skill_load');
+      // (d) doctor reports Codex as the DETECTED driver (from the clientInfo handshake).
+      const doctor = textOf(await client.callTool({ name: 'doctor', arguments: {} }));
+      expect(doctor).toContain('driver: OpenAI Codex (detected)');
+      // (e) MCP annotations survive the wire (the tools/list `annotations` field):
+      //     read-only doctor, destructive tasks_interrupt.
+      expect(tools.find((t) => t.name === 'doctor')?.annotations?.readOnlyHint).toBe(true);
+      expect(tools.find((t) => t.name === 'tasks_interrupt')?.annotations?.destructiveHint).toBe(true);
+      // Case 5 — skill_load under Codex returns the playbook body (Credits:) plus the
+      //     Codex tool-name appendix (apply_patch).
+      const skill = textOf(
+        await client.callTool({ name: 'skill_load', arguments: { name: 'debugging' } }),
+      );
+      expect(skill).toContain('Credits:');
+      expect(skill).toContain('apply_patch');
+    });
+  }, 20000);
+
+  it('host matrix: Claude Code client (clientInfo) — instructions, generate_image, doctor, skill_load', async () => {
+    await withClient({ name: 'claude-code' }, async (client) => {
+      // Instructions name Claude Code as the driver.
+      expect(client.getInstructions()).toContain('Driving client: Claude Code');
+      // Claude Code has no native image generation, so generate_image is never hidden
+      // (this box has the codex CLI on PATH, so image_gen resolves and the tool stays).
+      const names = (await client.listTools()).tools.map((t) => t.name);
+      expect(names).toContain('generate_image');
+      // doctor reports Claude Code as the DETECTED driver.
+      const doctor = textOf(await client.callTool({ name: 'doctor', arguments: {} }));
+      expect(doctor).toContain('driver: Claude Code (detected)');
+      // Case 5 — skill_load under Claude Code carries the Claude tool-name appendix
+      //     (TodoWrite), NOT the Codex one (apply_patch).
+      const skill = textOf(
+        await client.callTool({ name: 'skill_load', arguments: { name: 'debugging' } }),
+      );
+      expect(skill).toContain('TodoWrite');
+      expect(skill).not.toContain('apply_patch');
+    });
+  }, 20000);
+
+  it('host matrix: env VIBECODERS_CLIENT pins the driver over clientInfo (Codex pinned)', async () => {
+    // Precedence: the env override outranks the handshake. The client NAMES itself
+    // claude-code, but VIBECODERS_CLIENT=codex pins Codex — reported as (pinned).
+    await withClient(
+      { name: 'claude-code', env: { VIBECODERS_CLIENT: 'codex' } },
+      async (client) => {
+        const doctor = textOf(await client.callTool({ name: 'doctor', arguments: {} }));
+        expect(doctor).toContain('driver: OpenAI Codex (pinned)');
+      },
+    );
+  }, 20000);
+
+  it('host matrix: config host.force pins the driver over clientInfo (Gemini pinned)', async () => {
+    // Precedence: config force is the top signal. $VIBECODERS_HOME/config.json with
+    // host.force:"gemini" wins even though the client names itself codex-mcp-client.
+    await withClient(
+      { name: 'codex-mcp-client', config: { host: { force: 'gemini' } } },
+      async (client) => {
+        const doctor = textOf(await client.callTool({ name: 'doctor', arguments: {} }));
+        expect(doctor).toContain('driver: Google Gemini CLI (pinned)');
+      },
+    );
   }, 20000);
 
   it('reports the package.json version in its MCP handshake (single source of truth)', async () => {
