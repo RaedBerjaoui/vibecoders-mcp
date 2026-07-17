@@ -57,6 +57,26 @@ describe('listSkills', () => {
   it('skips missing/unreadable dirs silently', () => {
     expect(listSkills({ bundled: join(tmpdir(), 'vibe-skills-definitely-missing') })).toEqual([]);
   });
+
+  it('skips a non-slug directory name — list mirrors what loadSkill accepts', () => {
+    const user = makeUserDir();
+    // 'My_Skill' has an underscore + caps → fails SLUG_RE, so it must not list…
+    writeSkill(user, 'My_Skill', '---\nname: My_Skill\ndescription: bad slug\n---\n', '\nbody\n');
+    const skills = listSkills({ bundled: FIXTURES, user });
+    expect(skills.map((s) => s.name)).not.toContain('My_Skill');
+    // …and loadSkill must reject it WITHOUT advertising it in the Available list
+    // (the self-contradiction this fix removes).
+    let err: Error | undefined;
+    try {
+      loadSkill({ bundled: FIXTURES, user }, 'My_Skill', 'unknown');
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/unknown skill "My_Skill"/);
+    const available = err!.message.split('Available:')[1] ?? '';
+    expect(available).not.toContain('My_Skill');
+  });
 });
 
 describe('loadSkill', () => {
@@ -103,6 +123,21 @@ describe('loadSkill', () => {
     );
     const out = loadSkill({ user }, 'big-skill', 'unknown');
     expect(out).toContain('[truncated at 64KB]');
+  });
+
+  it('caps multi-byte content on a UTF-8 boundary (no U+FFFD from a split char)', () => {
+    const user = makeUserDir();
+    // '→' is 3 bytes; 64000 is not a multiple of 3, so a naive byte cut lands
+    // mid-character and would decode a U+FFFD replacement char before the marker.
+    writeSkill(
+      user,
+      'multibyte-skill',
+      '---\nname: multibyte-skill\ndescription: mb\n---\n',
+      '\n' + '→'.repeat(70_000) + '\n',
+    );
+    const out = loadSkill({ user }, 'multibyte-skill', 'unknown');
+    expect(out).toContain('[truncated at 64KB]');
+    expect(out).not.toContain('�'); // clean boundary, never a replacement char
   });
 });
 

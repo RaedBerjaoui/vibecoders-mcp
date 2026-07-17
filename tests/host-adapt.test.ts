@@ -175,6 +175,40 @@ describe('applyHostAdaptations — idempotency (initialize can fire twice)', () 
   });
 });
 
+describe('applyHostAdaptations — convergence across a host switch (reset pass)', () => {
+  it('codex(HIDE) → claude-code un-hides generate_image and restores pristine web_search text', () => {
+    const { handles, generate_image, web_search, delegate } = build();
+    // Codex first: hides generate_image (same engine) and reframes web_search as live.
+    applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'codex-cli' });
+    expect(generate_image.enabled).toBe(false);
+    expect(web_search.description).toBe(SEARCH_LIVE_PREFIX + WS_ORIG);
+    // Then a Claude Code reconnect on the SAME handles must converge to Claude state —
+    // NOT leave the stale Codex hide/prefix behind.
+    const log = applyHostAdaptations(PROFILES['claude-code'], handles, { imageProviderId: 'codex-cli' });
+    expect(generate_image.enabled).toBe(true); // un-hidden
+    expect(generate_image.description).toBe(GEN_ORIG);
+    expect(web_search.enabled).toBe(true);
+    expect(web_search.description).toBe(WS_ORIG); // Codex live-prefix gone
+    expect(delegate.description).toBe(DL_ORIG + CLAUDE_NOTE);
+    expect(log).toEqual(['annotated delegate for Claude Code']);
+  });
+
+  it('codex(REFRAME) → unknown restores EVERY surface to pristine and returns []', () => {
+    const { handles, generate_image, web_search, delegate } = build();
+    // gemini-api under Codex reframes the image description (not a hide) + search + delegate.
+    applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'gemini-api' });
+    expect(generate_image.description).toBe(IMAGE_ALT_PREFIX + GEN_ORIG);
+    // An unrecognized host has no rules — the reset must return the tools to pristine.
+    const log = applyHostAdaptations(PROFILES.unknown, handles, { imageProviderId: 'gemini-api' });
+    expect(log).toEqual([]);
+    expect(generate_image.enabled).toBe(true);
+    expect(generate_image.description).toBe(GEN_ORIG); // reframe removed
+    expect(web_search.enabled).toBe(true);
+    expect(web_search.description).toBe(WS_ORIG);
+    expect(delegate.description).toBe(DL_ORIG); // Codex note removed
+  });
+});
+
 describe('MCP SDK shape guard (initialize override depends on these internals)', () => {
   it('still exposes the private _oninitialize hook and getClientVersion store', () => {
     // If EITHER assertion fails, the SDK internals changed: the initialize override

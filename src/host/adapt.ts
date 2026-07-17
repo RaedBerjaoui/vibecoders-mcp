@@ -11,9 +11,14 @@
  * never call `.disable()` / `.update()` (which would fire a notification
  * mid-handshake).
  *
- * IDEMPOTENT: initialize can fire again on reconnect, so every description edit
- * recomputes from a snapshot of the tool's PRISTINE text instead of stacking a
- * prefix/suffix, and the returned change-log is stable across identical calls.
+ * CONVERGENT: initialize can fire again on reconnect — and the reconnecting
+ * client may DIFFER from the first (e.g. a Codex session that hid generate_image
+ * and reworded web_search, then a Claude Code reconnect on the same tool objects).
+ * So we open with a RESET pass: snapshot each handle's pristine {description,
+ * enabled} on first sight, then restore every handle to that snapshot BEFORE
+ * applying the current profile's rules. The outcome depends only on the current
+ * profile + ctx, never on prior calls — idempotent per host AND correct across a
+ * host switch. The returned change-log is stable across identical calls.
  */
 import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { HostId, HostProfile } from './profile';
@@ -41,19 +46,28 @@ const DELEGATE_NOTE: Partial<Record<HostId, string>> = {
   'gemini-cli': ' You are running in Gemini CLI: claude or codex give you a second engine.',
 };
 
-/**
- * Snapshot each tool's ORIGINAL description the first time we touch it. Keyed by
- * the RegisteredTool identity (WeakMap → no leak, no cross-test contamination:
- * every server builds fresh tool objects). A second initialize recomputes from
- * this pristine text, so prefixes/suffixes never double-apply.
- */
-const pristineDescriptions = new WeakMap<RegisteredTool, string>();
+/** A tool's pristine, pre-adaptation state — what every call restores to first. */
+interface PristineState {
+  description: string;
+  enabled: boolean;
+}
 
-function pristine(handle: RegisteredTool): string {
-  if (!pristineDescriptions.has(handle)) {
-    pristineDescriptions.set(handle, handle.description ?? '');
+/**
+ * Snapshot each tool's ORIGINAL {description, enabled} the first time we touch
+ * it. Keyed by the RegisteredTool identity (WeakMap → no leak, no cross-test
+ * contamination: every server builds fresh tool objects). Every call restores
+ * from this snapshot before applying rules, so neither a prefix/suffix nor a
+ * hidden `enabled` ever carries over from a previous (possibly different) host.
+ */
+const pristineState = new WeakMap<RegisteredTool, PristineState>();
+
+function pristine(handle: RegisteredTool): PristineState {
+  let snap = pristineState.get(handle);
+  if (!snap) {
+    snap = { description: handle.description ?? '', enabled: handle.enabled };
+    pristineState.set(handle, snap);
   }
-  return pristineDescriptions.get(handle)!;
+  return snap;
 }
 
 /**
@@ -67,6 +81,20 @@ export function applyHostAdaptations(
   ctx: AdaptCtx,
 ): string[] {
   const changes: string[] = [];
+
+  // RESET pass — snapshot each handle's pristine state on first sight, then
+  // restore every handle to it before applying this profile's rules. This is
+  // what makes the function CONVERGENT from any prior state (e.g. a previous
+  // Codex init that hid generate_image and reworded web_search), not merely
+  // idempotent when the SAME host reconnects. Restores in place — same reason as
+  // the rules: never call .disable()/.update() (they fire notifications).
+  for (const handle of Object.values(handles)) {
+    if (!handle) continue;
+    const snap = pristine(handle);
+    handle.description = snap.description;
+    handle.enabled = snap.enabled;
+  }
+
   const image = handles.generate_image;
   const search = handles.web_search;
   const delegate = handles.delegate;
@@ -79,14 +107,14 @@ export function applyHostAdaptations(
     } else if (ctx.imageProviderId) {
       // A different engine (e.g. Gemini) — keep it, but frame it as the alternate.
       image.enabled = true;
-      image.description = IMAGE_ALT_PREFIX + pristine(image);
+      image.description = IMAGE_ALT_PREFIX + pristine(image).description;
       changes.push('reframed generate_image as an alternate engine to Codex native image generation');
     }
   }
 
   if (p.id === 'codex' && search) {
     // Codex's web.run is a cached index by default; flag web_search as the LIVE path.
-    search.description = SEARCH_LIVE_PREFIX + pristine(search);
+    search.description = SEARCH_LIVE_PREFIX + pristine(search).description;
     changes.push('reframed web_search as live grounded search vs Codex cached web.run');
   }
 
@@ -104,7 +132,7 @@ export function applyHostAdaptations(
   if (delegate) {
     const note = DELEGATE_NOTE[p.id];
     if (note) {
-      delegate.description = pristine(delegate) + note;
+      delegate.description = pristine(delegate).description + note;
       changes.push(`annotated delegate for ${p.label}`);
     }
   }

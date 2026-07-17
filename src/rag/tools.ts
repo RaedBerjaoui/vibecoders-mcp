@@ -127,7 +127,7 @@ export function registerRag(
     'design_layer',
     {
       description:
-        'Pull ONE deeper design layer on demand, by name: donts (the vibecoded-tells catalogue — self-check the plan against it before shipping), formatting (the laws that make a page fill any screen with no dead margin and nothing clipped), directives (hard build directives: how to source visuals and structure a one-page site), scaffolds (occupancy-correct section scaffolds and their CSS — one dominant each), type_pointers (formatting-safe typographic elevation), image_gen (how to generate imagery — render it with the generate_image tool). Call design_core first; pull a layer only when the build needs it. Opt-in (features.rag).',
+        'Pull ONE deeper design layer on demand, by name: donts (the vibecoded-tells catalogue — self-check the plan against it before shipping), formatting (the laws that make a page fill any screen with no dead margin and nothing clipped), directives (hard build directives: how to source visuals and structure a one-page site), scaffolds (occupancy-correct section scaffolds and their CSS — one dominant each), type_pointers (formatting-safe typographic elevation), image_gen (how to source imagery: your client\'s native image generation or the generate_image tool). Call design_core first; pull a layer only when the build needs it. Opt-in (features.rag).',
       inputSchema: {
         layer: z.enum(LAYER_NAMES).describe('which layer to load'),
       },

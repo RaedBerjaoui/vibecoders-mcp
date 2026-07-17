@@ -34,6 +34,23 @@ describe('vibecoders setup (guided scaffold)', () => {
     rmSync(dirname(cfg), { recursive: true, force: true });
   });
 
+  it('lists the rag and skills capabilities in the walkthrough (regression: were omitted)', () => {
+    const cfg = tmpCfg();
+    const out = run(['setup'], cfg);
+    expect(out).toContain('Design RAG');
+    expect(out).toContain('Skills');
+    rmSync(dirname(cfg), { recursive: true, force: true });
+  });
+
+  it('can focus rag / skills without an "unknown capability" error (exit 0)', () => {
+    const cfg = tmpCfg();
+    // run() throws if the CLI exits non-zero, so a returned string is itself proof
+    // these are now recognized capabilities.
+    expect(run(['setup', 'rag'], cfg)).toContain('Design RAG');
+    expect(run(['setup', 'skills'], cfg)).toContain('Skills');
+    rmSync(dirname(cfg), { recursive: true, force: true });
+  });
+
   it('exits non-zero with a helpful message for an unknown capability', () => {
     const cfg = tmpCfg();
     let err: any;
@@ -425,7 +442,8 @@ describe('vibecoders register — multi-client (--client)', () => {
     const r = reg(['--client', 'codex'], '/usr/bin:/bin', dir);
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/not found on PATH/);
-    expect(r.stderr).toContain('codex mcp add vibecoders -- node');
+    // The printed manual command quotes the dist path so it survives spaces.
+    expect(r.stderr).toContain('codex mcp add vibecoders -- node "');
     rmSync(dir, { recursive: true, force: true });
   });
 

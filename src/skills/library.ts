@@ -84,7 +84,9 @@ function dirHasSkill(dir: string): boolean {
  * List every skill across the given dirs, bundled first then user (so a user
  * slug shadows the bundled one), sorted by name. Missing/unreadable dirs are
  * skipped silently; a subdir with no SKILL.md is not a skill; a SKILL.md with no
- * parseable frontmatter still lists with the placeholder description.
+ * parseable frontmatter still lists with the placeholder description. A name that
+ * isn't a valid slug is skipped, so the listing is the exact mirror of what
+ * loadSkill will accept (no advertising a skill that then fails to load).
  */
 export function listSkills(dirs: SkillDirs): SkillMeta[] {
   const bySlug = new Map<string, SkillMeta>();
@@ -101,6 +103,9 @@ export function listSkills(dirs: SkillDirs): SkillMeta[] {
       continue; // missing/unreadable dir → skip silently
     }
     for (const slug of names) {
+      // Mirror loadSkill's guard: a name that can't be loaded must not be listed,
+      // else the list advertises a skill whose load fails as "unknown".
+      if (!SLUG_RE.test(slug)) continue;
       const md = readSkillFile(dir, slug);
       if (md === undefined) continue; // no SKILL.md here → not a skill
       bySlug.set(slug, {
@@ -170,11 +175,16 @@ function parseDescription(md: string): string | undefined {
   return undefined;
 }
 
-/** Cap to MAX_SKILL_BYTES bytes (not chars), appending a truncation marker. */
+/** Cap to MAX_SKILL_BYTES bytes (not chars), appending a truncation marker.
+ *  Backs off to a UTF-8 character boundary first: if the cut would land mid-
+ *  character, walk past the trailing continuation bytes (0b10xxxxxx) so decoding
+ *  never emits a U+FFFD replacement char right before the marker. */
 function capBytes(s: string): string {
   const buf = Buffer.from(s, 'utf8');
   if (buf.length <= MAX_SKILL_BYTES) return s;
-  return buf.subarray(0, MAX_SKILL_BYTES).toString('utf8') + TRUNCATION_MARKER;
+  let end = MAX_SKILL_BYTES;
+  while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) end--;
+  return buf.subarray(0, end).toString('utf8') + TRUNCATION_MARKER;
 }
 
 /**

@@ -187,6 +187,8 @@ function guidedSetup(focus) {
     { id: 'reference', label: 'Reference (web read)', defaultOn: true, grant: 'on by default' },
     { id: 'projectContext', label: 'Project context', defaultOn: true, grant: 'on by default' },
     { id: 'tasks', label: 'Background tasks (async delegation)', defaultOn: true, grant: 'on by default' },
+    { id: 'rag', label: 'Design RAG (anti-AI-design tools)', defaultOn: true, grant: 'on by default' },
+    { id: 'skills', label: 'Skills (curated skill playbooks)', defaultOn: true, grant: 'on by default' },
     { id: 'device', label: 'Device search + chat history (macOS · personal data)', defaultOn: false,
       grant: 'vibecoders config set features.device true' },
     { id: 'vault', label: 'Notes vault (personal data)', defaultOn: false,
@@ -374,7 +376,7 @@ const REGISTRARS = {
     label: 'Claude Code',
     bin: 'claude',
     argv: ['mcp', 'add', 'vibecoders', '-s', 'user', '--', 'node', DIST],
-    manual: `claude mcp add vibecoders -s user -- node ${DIST}`,
+    manual: `claude mcp add vibecoders -s user -- node "${DIST}"`,
     success: [
       '\nRegistered "vibecoders" with Claude Code (user scope).',
       'Restart Claude Code, then ask it to run `doctor`.',
@@ -384,7 +386,7 @@ const REGISTRARS = {
     label: 'Codex',
     bin: 'codex',
     argv: ['mcp', 'add', 'vibecoders', '--', 'node', DIST],
-    manual: `codex mcp add vibecoders -- node ${DIST}`,
+    manual: `codex mcp add vibecoders -- node "${DIST}"`,
     success: [
       'Registered vibecoders with Codex.',
       'Restart: start a new Codex session.',
@@ -395,7 +397,7 @@ const REGISTRARS = {
     label: 'Gemini CLI',
     bin: 'gemini',
     argv: ['mcp', 'add', 'vibecoders', 'node', DIST],
-    manual: `gemini mcp add vibecoders node ${DIST}`,
+    manual: `gemini mcp add vibecoders node "${DIST}"`,
     success: [
       'Registered vibecoders with Gemini CLI.',
       'Restart: start a new Gemini CLI session.',
@@ -481,7 +483,7 @@ function initSetup() {
   status();
   console.log('\nRegister with your coding agent (one command):');
   console.log('  vibecoders register [--client claude|codex|gemini|all]   (default claude)');
-  console.log(`  …or manually:  claude mcp add vibecoders -s user -- node ${DIST}`);
+  console.log(`  …or manually:  claude mcp add vibecoders -s user -- node "${DIST}"`);
   console.log('\nIt runs with NO keys, servers, or CLIs. Add a delegation CLI');
   console.log('(codex / gemini / claude) to offload work on your subscription.');
 }
