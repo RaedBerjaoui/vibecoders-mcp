@@ -50,6 +50,7 @@ export function registerTasks(server: McpServer, deps: TasksDeps): void {
       inputSchema: {
         id: z.string().optional().describe('a task id from a prior tasks_list — returns its full output'),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ id }) => {
       if (id) {
@@ -71,6 +72,9 @@ export function registerTasks(server: McpServer, deps: TasksDeps): void {
         id: z.string().describe('the task id to steer'),
         input: z.string().describe('text to write to the task’s stdin'),
       },
+      // Feeds stdin to a running task (not read-only) but doesn't tear anything
+      // down (not destructive).
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ id, input }) => {
       const r = tasks.steer(id, input);
@@ -85,6 +89,8 @@ export function registerTasks(server: McpServer, deps: TasksDeps): void {
     {
       description: 'Stop a running background task (SIGTERM) and mark it interrupted.',
       inputSchema: { id: z.string().describe('the task id to interrupt') },
+      // Kills a running task — a destructive action.
+      annotations: { destructiveHint: true },
     },
     async ({ id }) => {
       const r = tasks.interrupt(id);

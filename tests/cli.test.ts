@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { FEATURE_GROUPS } from '../src/capabilities/config';
 
 const BIN = fileURLToPath(new URL('../bin/vibecoders.mjs', import.meta.url));
+// The built server the CLI registers (node <DIST>). Present in the repo (dist/index.js).
+const DIST = fileURLToPath(new URL('../dist/index.js', import.meta.url));
 const tmpCfg = () => join(mkdtempSync(join(tmpdir(), 'vibe-setup-')), 'config.json');
 const run = (args: string[], cfgPath: string): string =>
   execFileSync('node', [BIN, ...args], {
@@ -97,6 +100,18 @@ describe('vibecoders doctor — converged renderer + --json (T28/T32)', () => {
     });
     expect(out).toMatch(/set BRAVE_API_KEY/);
     expect(out).toMatch(/unset TAVILY_API_KEY/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('renders the static CLI driver header (never a connected client)', () => {
+    // The live 'driver: <label>' line comes from the server's doctor tool; the CLI
+    // has no driving MCP client, so its status view pins the "not connected" header.
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-hdr-'));
+    const out = execFileSync('node', [BIN, 'doctor'], {
+      encoding: 'utf8',
+      env: { ...process.env, VIBECODERS_CONFIG: join(dir, 'config.json'), VIBECODERS_HOME: dir },
+    });
+    expect(out).toMatch(/Vibecoders — driver: not connected \(CLI status view\)/);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -230,6 +245,9 @@ describe('vibecoders help', () => {
     expect(out).toContain('handoff recall');
     expect(out).toContain('vault set');
     expect(out).toContain('config set');
+    // register is now multi-client — the help must surface the --client flag.
+    expect(out).toContain('--client');
+    expect(out).toMatch(/claude\|codex\|gemini\|all/);
   });
 
   it('still errors (exit 1) on a genuinely unknown command', () => {
@@ -243,5 +261,180 @@ describe('vibecoders help', () => {
     expect(err?.status).toBe(1);
     expect(String(err.stderr)).toContain('Unknown command');
     rmSync(dirname(cfg), { recursive: true, force: true });
+  });
+});
+
+// The CLI's accepted `features.<name>` keys must stay in lockstep with the ONE
+// source of truth in src (FEATURE_GROUPS). We assert parity by CLI behavior —
+// every group name is a known key (no warning), and a name that isn't a group
+// warns. This catches drift the moment a new group is added to src but not to the
+// hand-maintained FEATURE_NAMES list in bin/vibecoders.mjs (the `rag`/`skills`
+// bug this change fixes).
+describe('vibecoders config set — features parity with src FEATURE_GROUPS', () => {
+  const runCfg = (args: string[], cfgPath: string) => {
+    const r = spawnSync('node', [BIN, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, VIBECODERS_CONFIG: cfgPath },
+    });
+    return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status };
+  };
+
+  it('accepts every FEATURE_GROUPS name as features.<name> without warning', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-parity-'));
+    for (const g of FEATURE_GROUPS) {
+      const r = runCfg(['config', 'set', `features.${g.name}`, 'true'], join(dir, `${g.name}.json`));
+      expect(r.status, `features.${g.name} should exit 0`).toBe(0);
+      expect(r.stderr, `features.${g.name} should be a KNOWN key`).not.toMatch(/unknown (config )?key/i);
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('accepts the newly-added rag and skills groups (regression: were unknown)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-ragskills-'));
+    expect(runCfg(['config', 'set', 'features.rag', 'false'], join(dir, 'a.json')).stderr).not.toMatch(
+      /unknown (config )?key/i,
+    );
+    expect(runCfg(['config', 'set', 'features.skills', 'true'], join(dir, 'b.json')).stderr).not.toMatch(
+      /unknown (config )?key/i,
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('accepts host.adaptive / host.force (host pinning keys)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-host-'));
+    expect(runCfg(['config', 'set', 'host.adaptive', 'false'], join(dir, 'a.json')).stderr).not.toMatch(
+      /unknown (config )?key/i,
+    );
+    expect(runCfg(['config', 'set', 'host.force', 'codex'], join(dir, 'b.json')).stderr).not.toMatch(
+      /unknown (config )?key/i,
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('still warns on a features.<name> that is not a real group', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-nogroup-'));
+    const r = runCfg(['config', 'set', 'features.zzz', 'true'], join(dir, 'z.json'));
+    expect(r.stderr).toMatch(/unknown (config )?key/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// register is multi-client: `vibecoders register [--client claude|codex|gemini|all]`.
+// We drive it with a temp PATH shim of stub executables that record their argv to a
+// file, so `hasCli` + the actual `mcp add` resolve to the stubs (never the real CLIs)
+// and we can assert the exact argv each client is invoked with.
+describe('vibecoders register — multi-client (--client)', () => {
+  /** An executable stub that records its argv (one per line) to `outFile`, then exits `code`. */
+  const writeArgvStub = (dir: string, name: string, outFile: string, code = 0) => {
+    const p = join(dir, name);
+    writeFileSync(p, `#!/bin/sh\nprintf '%s\\n' "$@" > "${outFile}"\nexit ${code}\n`);
+    chmodSync(p, 0o755);
+  };
+  const recordedArgv = (outFile: string): string[] =>
+    readFileSync(outFile, 'utf8').split('\n').filter((l) => l.length > 0);
+  /** Run the CLI with an absolute node (PATH-independent) + a custom PATH/env. */
+  const reg = (args: string[], pathVal: string, cfgDir: string) =>
+    spawnSync(process.execPath, [BIN, 'register', ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: pathVal, VIBECODERS_CONFIG: join(cfgDir, 'cfg.json') },
+    });
+  // Shim prepended to the real PATH so the stubs win over any real CLI on this box.
+  const shimPath = (shim: string) => `${shim}:${process.env.PATH}`;
+
+  it('--client codex → `codex mcp add vibecoders -- node <DIST>`', () => {
+    const shim = mkdtempSync(join(tmpdir(), 'vibe-reg-codex-'));
+    const out = join(shim, 'codex.argv');
+    writeArgvStub(shim, 'codex', out);
+    const r = reg(['--client', 'codex'], shimPath(shim), shim);
+    expect(r.status).toBe(0);
+    expect(recordedArgv(out)).toEqual(['mcp', 'add', 'vibecoders', '--', 'node', DIST]);
+    expect(r.stdout).toContain('Registered vibecoders with Codex.');
+    rmSync(shim, { recursive: true, force: true });
+  });
+
+  it('--client gemini → `gemini mcp add vibecoders node <DIST>` (positional, no `--`)', () => {
+    const shim = mkdtempSync(join(tmpdir(), 'vibe-reg-gem-'));
+    const out = join(shim, 'gemini.argv');
+    writeArgvStub(shim, 'gemini', out);
+    const r = reg(['--client', 'gemini'], shimPath(shim), shim);
+    expect(r.status).toBe(0);
+    expect(recordedArgv(out)).toEqual(['mcp', 'add', 'vibecoders', 'node', DIST]);
+    expect(r.stdout).toContain('Registered vibecoders with Gemini CLI.');
+    rmSync(shim, { recursive: true, force: true });
+  });
+
+  it('defaults to claude (user scope) with no --client — backwards compatible', () => {
+    const shim = mkdtempSync(join(tmpdir(), 'vibe-reg-claude-'));
+    const out = join(shim, 'claude.argv');
+    writeArgvStub(shim, 'claude', out);
+    const r = reg([], shimPath(shim), shim);
+    expect(r.status).toBe(0);
+    expect(recordedArgv(out)).toEqual(['mcp', 'add', 'vibecoders', '-s', 'user', '--', 'node', DIST]);
+    expect(r.stdout).toContain('Registered "vibecoders" with Claude Code');
+    rmSync(shim, { recursive: true, force: true });
+  });
+
+  it('--client all registers every installed client and exits 0', () => {
+    const shim = mkdtempSync(join(tmpdir(), 'vibe-reg-all-'));
+    const outs = {
+      codex: join(shim, 'codex.argv'),
+      gemini: join(shim, 'gemini.argv'),
+      claude: join(shim, 'claude.argv'),
+    };
+    writeArgvStub(shim, 'codex', outs.codex);
+    writeArgvStub(shim, 'gemini', outs.gemini);
+    writeArgvStub(shim, 'claude', outs.claude);
+    const r = reg(['--client', 'all'], shimPath(shim), shim);
+    expect(r.status).toBe(0);
+    expect(recordedArgv(outs.codex)).toEqual(['mcp', 'add', 'vibecoders', '--', 'node', DIST]);
+    expect(recordedArgv(outs.gemini)).toEqual(['mcp', 'add', 'vibecoders', 'node', DIST]);
+    expect(recordedArgv(outs.claude)).toEqual(['mcp', 'add', 'vibecoders', '-s', 'user', '--', 'node', DIST]);
+    expect(r.stdout).toMatch(/3\/3 registered/);
+    rmSync(shim, { recursive: true, force: true });
+  });
+
+  it('--client all skips a client whose binary is absent (partial install)', () => {
+    const shim = mkdtempSync(join(tmpdir(), 'vibe-reg-partial-'));
+    const codexOut = join(shim, 'codex.argv');
+    writeArgvStub(shim, 'codex', codexOut); // only codex installed
+    // Minimal PATH: shim (codex) + /usr/bin:/bin for `which`/`sh`; gemini+claude absent.
+    const r = reg(['--client', 'all'], `${shim}:/usr/bin:/bin`, shim);
+    expect(r.status).toBe(0);
+    expect(recordedArgv(codexOut)).toEqual(['mcp', 'add', 'vibecoders', '--', 'node', DIST]);
+    expect(r.stdout).toMatch(/skipped Gemini/);
+    expect(r.stdout).toMatch(/skipped Claude/);
+    expect(r.stdout).toMatch(/1\/1 registered/);
+    rmSync(shim, { recursive: true, force: true });
+  });
+
+  it('--client all exits 1 only when EVERY attempt fails', () => {
+    const shim = mkdtempSync(join(tmpdir(), 'vibe-reg-allfail-'));
+    // All three present but each exits non-zero → every attempt fails → exit 1.
+    writeArgvStub(shim, 'codex', join(shim, 'codex.argv'), 1);
+    writeArgvStub(shim, 'gemini', join(shim, 'gemini.argv'), 1);
+    writeArgvStub(shim, 'claude', join(shim, 'claude.argv'), 1);
+    const r = reg(['--client', 'all'], shimPath(shim), shim);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/0\/3 registered/);
+    rmSync(shim, { recursive: true, force: true });
+  });
+
+  it('errors (exit 1) with the manual command when an explicit client is not installed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-reg-missing-'));
+    // /usr/bin:/bin resolves `which` but not codex → treated as not installed.
+    const r = reg(['--client', 'codex'], '/usr/bin:/bin', dir);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/not found on PATH/);
+    expect(r.stderr).toContain('codex mcp add vibecoders -- node');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('errors (exit 1) on an unknown --client', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vibe-reg-bogus-'));
+    const r = reg(['--client', 'notaclient'], process.env.PATH ?? '', dir);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/unknown --client/);
+    expect(r.stderr).toMatch(/claude, codex, gemini, all/);
+    rmSync(dir, { recursive: true, force: true });
   });
 });

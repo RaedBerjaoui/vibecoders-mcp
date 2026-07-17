@@ -155,6 +155,7 @@ export function registerDevice(server: McpServer, deps: DeviceDeps): Record<stri
         onlyIn: z.string().optional().describe('restrict the search to this directory'),
         limit: z.number().int().positive().optional().describe('max paths to return (default 50)'),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ query, onlyIn, limit }) => {
       if (process.platform !== 'darwin') {
@@ -174,11 +175,12 @@ export function registerDevice(server: McpServer, deps: DeviceDeps): Record<stri
     'chat_history_search',
     {
       description:
-        'Search your OWN past Claude Code conversations (~/.claude/projects transcripts) by meaning. Opt-in (features.device). Returns matching snippets with their source file.',
+        'Search your past Claude Code conversation transcripts (~/.claude/projects) by meaning. Works from any MCP client — the corpus is Claude Code history. Opt-in (features.device). Returns matching snippets with their source file.',
       inputSchema: {
         query: z.string().describe('what to look for across your prior sessions'),
         limit: z.number().int().positive().optional().describe('max snippets to return (default 20)'),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ query, limit }) => {
       try {

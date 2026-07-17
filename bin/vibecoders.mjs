@@ -75,7 +75,7 @@ function coerceValue(raw) {
 // of silently writing an inert key. DERIVED in spirit from FEATURE_GROUPS + the
 // Zod schema in src/capabilities/config.ts (kept in sync here because this .mjs
 // can't import the TS schema — same pattern as the SECRETS array above).
-const FEATURE_NAMES = ['memory', 'reference', 'projectContext', 'tasks', 'device', 'vault'];
+const FEATURE_NAMES = ['memory', 'reference', 'projectContext', 'tasks', 'device', 'vault', 'rag', 'skills'];
 const KNOWN_CONFIG_KEYS = [
   ...FEATURE_NAMES.map((n) => `features.${n}`),
   'memory.embeddings',
@@ -91,6 +91,8 @@ const KNOWN_CONFIG_KEYS = [
   'overlay.enabled',
   'overlay.dir',
   'delegation.envMode',
+  'host.adaptive',
+  'host.force',
 ];
 // `capabilities.*` is a free-form record in the schema (per-capability provider +
 // settings), so any dotted key under it is allowed without a warning.
@@ -312,6 +314,9 @@ function isAnythingConfigured(d) {
 // scriptable; appends the all-empty call-to-action.
 function renderStatus(d) {
   const lines = [
+    // The CLI never has a driving MCP client — the live 'driver: <label>' line
+    // comes from the server's doctor tool. This is the static CLI status view.
+    'Vibecoders — driver: not connected (CLI status view)\n',
     'Delegation CLIs (optional — delegate bills via your subscription, not an API):',
   ];
   if (d.providers.length === 0) {
@@ -360,18 +365,106 @@ function status(json = false) {
   console.log(json ? JSON.stringify(renderStatusJson(data), null, 2) : renderStatus(data));
 }
 
-function registerWithClaude() {
-  if (!existsSync(DIST)) return fail('Not built yet. Run `vibecoders init` (or `npm run build`) first.');
-  try {
-    execFileSync('claude', ['mcp', 'add', 'vibecoders', '-s', 'user', '--', 'node', DIST], {
-      stdio: 'inherit',
-    });
-    console.log('\nRegistered "vibecoders" with Claude Code (user scope).');
-    console.log('Restart Claude Code, then ask it to run `doctor`.');
-  } catch {
-    console.log('Could not run `claude mcp add` automatically. Run this yourself:');
-    console.log(`  claude mcp add vibecoders -s user -- node ${DIST}`);
+// ---- register: add this server to a coding agent's MCP config ---------------
+// Multi-client. Each entry knows the binary, the exact argv (verified against the
+// local CLIs — claude, codex-cli, gemini), the manual fallback command, and the
+// lines to print on success. `--client all` fans out over the installed ones.
+const REGISTRARS = {
+  claude: {
+    label: 'Claude Code',
+    bin: 'claude',
+    argv: ['mcp', 'add', 'vibecoders', '-s', 'user', '--', 'node', DIST],
+    manual: `claude mcp add vibecoders -s user -- node ${DIST}`,
+    success: [
+      '\nRegistered "vibecoders" with Claude Code (user scope).',
+      'Restart Claude Code, then ask it to run `doctor`.',
+    ],
+  },
+  codex: {
+    label: 'Codex',
+    bin: 'codex',
+    argv: ['mcp', 'add', 'vibecoders', '--', 'node', DIST],
+    manual: `codex mcp add vibecoders -- node ${DIST}`,
+    success: [
+      'Registered vibecoders with Codex.',
+      'Restart: start a new Codex session.',
+      'Tip: for long delegate calls raise the MCP tool timeout — in ~/.codex/config.toml under [mcp_servers.vibecoders]: tool_timeout_sec = 1200',
+    ],
+  },
+  gemini: {
+    label: 'Gemini CLI',
+    bin: 'gemini',
+    argv: ['mcp', 'add', 'vibecoders', 'node', DIST],
+    manual: `gemini mcp add vibecoders node ${DIST}`,
+    success: [
+      'Registered vibecoders with Gemini CLI.',
+      'Restart: start a new Gemini CLI session.',
+    ],
+  },
+};
+
+/** Parse `--client <id>` / `--client=<id>` from the args after `register`. Default claude. */
+function parseClientFlag(args) {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--client') return args[i + 1]; // may be undefined → invalid
+    if (a.startsWith('--client=')) return a.slice('--client='.length);
   }
+  return 'claude';
+}
+
+/** Run one client's `mcp add` (binary assumed present). Prints success lines or the fallback. */
+function runRegistrar(spec) {
+  try {
+    execFileSync(spec.bin, spec.argv, { stdio: 'inherit' });
+    for (const line of spec.success) console.log(line);
+    return true;
+  } catch {
+    console.log(`Could not run \`${spec.bin} mcp add\` automatically. Run this yourself:`);
+    console.log(`  ${spec.manual}`);
+    return false;
+  }
+}
+
+function register(args) {
+  if (!existsSync(DIST)) return fail('Not built yet. Run `vibecoders init` (or `npm run build`) first.');
+  const client = parseClientFlag(args);
+  const valid = new Set([...Object.keys(REGISTRARS), 'all']);
+  if (!client || !valid.has(client)) {
+    return fail(`register: unknown --client '${client ?? ''}' (expected: claude, codex, gemini, all)`);
+  }
+
+  if (client === 'all') {
+    // Try each installed client (PROVIDERS order); skip those whose binary is absent.
+    let attempts = 0;
+    let registered = 0;
+    for (const id of PROVIDERS) {
+      const spec = REGISTRARS[id];
+      if (!hasCli(spec.bin)) {
+        console.log(`· skipped ${spec.label} (${spec.bin} not installed)`);
+        continue;
+      }
+      attempts++;
+      if (runRegistrar(spec)) registered++;
+    }
+    if (attempts === 0) {
+      console.log('\nNo delegation CLIs found (codex / gemini / claude). Install one, then re-run.');
+      return;
+    }
+    console.log(`\nregister --client all: ${registered}/${attempts} registered.`);
+    // Non-zero exit only if EVERY attempt failed.
+    if (registered === 0) process.exit(1);
+    return;
+  }
+
+  // A single, explicitly-chosen client. Missing binary → clear error + manual cmd, exit 1.
+  // (Binary present but the command fails → runRegistrar prints the fallback, no exit 1 —
+  // preserves the original claude behavior.)
+  const spec = REGISTRARS[client];
+  if (!hasCli(spec.bin)) {
+    return fail(`register: '${spec.bin}' not found on PATH. Install it, or run this yourself:\n  ${spec.manual}`);
+  }
+  runRegistrar(spec);
 }
 
 function initSetup() {
@@ -386,9 +479,9 @@ function initSetup() {
   }
   console.log('');
   status();
-  console.log('\nRegister with Claude Code (one command):');
-  console.log('  vibecoders register');
-  console.log(`  …or:  claude mcp add vibecoders -- node ${DIST}`);
+  console.log('\nRegister with your coding agent (one command):');
+  console.log('  vibecoders register [--client claude|codex|gemini|all]   (default claude)');
+  console.log(`  …or manually:  claude mcp add vibecoders -s user -- node ${DIST}`);
   console.log('\nIt runs with NO keys, servers, or CLIs. Add a delegation CLI');
   console.log('(codex / gemini / claude) to offload work on your subscription.');
 }
@@ -471,7 +564,7 @@ async function main() {
       initSetup();
       break;
     case 'register':
-      registerWithClaude();
+      register(process.argv.slice(3));
       break;
     case 'doctor': {
       // `vibecoders doctor [--json]` — structured output for scripts/CI/a11y.
@@ -513,7 +606,8 @@ async function main() {
       status();
       console.log('\nFastest path:');
       console.log('  vibecoders init        build + status');
-      console.log('  vibecoders register    add to Claude Code (user scope)');
+      console.log('  vibecoders register    register with a coding agent (default claude)');
+      console.log('                         --client claude|codex|gemini|all to pick one, or all');
       console.log('\nOptional extras:');
       console.log('  • Delegate on your plan: install a CLI (codex / gemini / claude)');
       console.log('  • Mount other MCPs:      cp servers.example.json servers.json');
@@ -535,7 +629,8 @@ async function main() {
         'vibecoders <command>',
         '',
         '  init               build + status (one-shot setup)',
-        '  register           add this server to Claude Code (user scope)',
+        '  register           register this server with a coding agent',
+        '                     [--client claude|codex|gemini|all] (default claude)',
         '  onboard            guided setup + status',
         '  setup [capability] guided per-machine setup (read-only)',
         '  doctor             show delegation CLIs, servers, keys, and build status',

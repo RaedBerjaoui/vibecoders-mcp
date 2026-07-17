@@ -114,6 +114,7 @@ export function registerVault(
         query: z.string().describe('what to look for in your notes'),
         limit: z.number().int().positive().optional().describe('max notes to return (default 10)'),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ query, limit }) => {
       if (!existsSync(dir)) {
@@ -132,6 +133,7 @@ export function registerVault(
       inputSchema: {
         path: z.string().describe('note path relative to the vault dir (e.g. "ideas/caching.md")'),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ path: p }) => {
       try {

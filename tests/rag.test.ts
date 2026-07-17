@@ -13,8 +13,20 @@ import {
   LAYER_NAMES,
 } from '../src/rag/tools';
 import type { Logger } from '../src/util/logger';
+import { PROFILES, type HostProfile } from '../src/host/profile';
 
 const fixtureLayers = { donts: 'AVOID THE FADE', scaffolds: 'one dominant each' };
+
+/** Write a content dir carrying an image_gen layer (for the host-note tests). */
+function writeImageGenContentDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'vibe-rag-ig-'));
+  writeFileSync(join(dir, 'core.json'), JSON.stringify({ content: 'core' }));
+  writeFileSync(
+    join(dir, 'layers.json'),
+    JSON.stringify({ image_gen: 'RENDER WITH generate_image', donts: 'AVOID' }),
+  );
+  return dir;
+}
 
 /** Write a valid local content dir and return its path. */
 function writeContentDir(core = 'the standard and the two gates'): string {
@@ -213,6 +225,71 @@ describe('registerRag — tools over MCP transport', () => {
         arguments: { layer: 'donts' },
       })) as { content: Array<{ text: string }> };
       expect(layer.content[0]!.text).toMatch(/not installed locally/);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+// design_layer appends a host note on the image_gen layer ONLY when the driving
+// client generates images natively (so generate_image is likely hidden as a
+// duplicate). Wired via the optional getHost dep; other layers/hosts are untouched.
+describe('registerRag — design_layer image_gen host note', () => {
+  async function connectWithHost(getHost: () => HostProfile) {
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const log: Logger = { debug() {}, info() {}, warn() {}, error() {} };
+    const server = new McpServer({ name: 'test', version: '0.0.0' });
+    registerRag(server, { log, getHost });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'c', version: '0.0.0' });
+    await Promise.all([server.connect(serverT), client.connect(clientT)]);
+    return client;
+  }
+
+  const layerText = async (client: Awaited<ReturnType<typeof connectWithHost>>, layer: string) =>
+    (
+      (await client.callTool({ name: 'design_layer', arguments: { layer } })) as {
+        content: Array<{ text: string }>;
+      }
+    ).content[0]!.text;
+
+  it('appends the note on image_gen when the host has native image generation (codex)', async () => {
+    const dir = writeImageGenContentDir();
+    tempDirs.push(dir);
+    process.env.VIBECODERS_DESIGN_RAG_DIR = dir;
+    const client = await connectWithHost(() => PROFILES.codex);
+    try {
+      const out = await layerText(client, 'image_gen');
+      expect(out).toContain('RENDER WITH generate_image'); // real layer body preserved
+      expect(out).toMatch(/Host note:.*native image generation/);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('does NOT append the note when the host lacks native image gen (claude-code)', async () => {
+    const dir = writeImageGenContentDir();
+    tempDirs.push(dir);
+    process.env.VIBECODERS_DESIGN_RAG_DIR = dir;
+    const client = await connectWithHost(() => PROFILES['claude-code']);
+    try {
+      const out = await layerText(client, 'image_gen');
+      expect(out).toContain('RENDER WITH generate_image');
+      expect(out).not.toMatch(/Host note/);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('never appends the note on a NON-image layer, even when the host has native image gen', async () => {
+    const dir = writeImageGenContentDir();
+    tempDirs.push(dir);
+    process.env.VIBECODERS_DESIGN_RAG_DIR = dir;
+    const client = await connectWithHost(() => PROFILES.codex);
+    try {
+      expect(await layerText(client, 'donts')).toBe('AVOID'); // verbatim, no note
     } finally {
       await client.close();
     }

@@ -29,6 +29,8 @@ export function registerReference(server: McpServer, deps: ReferenceDeps): void 
         `headings, and top links. Fetches the live page (SSRF-guarded, size-capped). ` +
         `Use to understand how a reference is built — not to copy it.`,
       inputSchema: { url: z.string().url() },
+      // Fetches a live URL (open-world) but only reads it (read-only).
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (input) => {
       try {
@@ -63,6 +65,7 @@ export function registerReference(server: McpServer, deps: ReferenceDeps): void 
         query: z.string().optional().describe('Center the excerpt on this phrase, if present.'),
         radius: z.number().int().min(100).max(4000).optional().describe('Chars of context each side (default 800).'),
       },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (input) => {
       try {
@@ -87,6 +90,7 @@ export function registerReference(server: McpServer, deps: ReferenceDeps): void 
         url: z.string().url(),
         reason: z.string().min(1).describe('Why the full source is needed (required).'),
       },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (input) => {
       try {

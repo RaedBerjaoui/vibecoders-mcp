@@ -5,7 +5,10 @@ import {
   getProvider,
   availableProviders,
   type ProviderDef,
+  type AvailableProvider,
 } from '../src/providers/registry';
+import { summarizeProviders } from '../src/providers/tools';
+import { PROFILES } from '../src/host/profile';
 
 describe('resolveOnPath', () => {
   it('finds a binary that is on PATH', () => {
@@ -107,5 +110,38 @@ describe('provider catalog', () => {
     const got = availableProviders(defs);
     expect(got.map((g) => g.def.id)).toEqual(['real']);
     expect(got[0]?.path).toMatch(/node$/);
+  });
+});
+
+// list_providers passes the driving host's selfProviderId into summarizeProviders,
+// which marks the matching line so the model prefers a DIFFERENT engine when
+// delegating (delegating to your own client just spawns a second copy). Providers
+// are injected here so the test never depends on which CLIs are installed on PATH.
+describe('summarizeProviders — host self-provider marker', () => {
+  const mk = (id: string, label: string): AvailableProvider => ({
+    def: { id, label, command: id, billing: `${label} plan, not the api`, promptVia: 'stdin', args: () => [] },
+    path: `/bin/${id}`,
+  });
+  const fakeAvail = [mk('codex', 'Codex CLI'), mk('gemini', 'Gemini CLI')];
+  const MARKER = '← the client currently driving';
+
+  it('marks ONLY the provider whose id equals the host selfProviderId (codex)', () => {
+    const out = summarizeProviders({ providers: fakeAvail, selfProviderId: PROFILES.codex.selfProviderId });
+    const line = (prefix: string) => out.split('\n').find((l) => l.startsWith(prefix))!;
+    expect(line('- codex')).toContain(MARKER);
+    expect(line('- codex')).toMatch(/cross-model delegation usually adds more/);
+    expect(line('- gemini')).not.toContain(MARKER);
+  });
+
+  it('adds NO marker when no host/selfProviderId is supplied', () => {
+    expect(summarizeProviders({ providers: fakeAvail })).not.toContain(MARKER);
+  });
+
+  it('adds NO marker when the driving host is not itself a delegation provider (unknown)', () => {
+    const out = summarizeProviders({
+      providers: fakeAvail,
+      selfProviderId: PROFILES.unknown.selfProviderId, // undefined
+    });
+    expect(out).not.toContain(MARKER);
   });
 });

@@ -20,6 +20,9 @@ export function registerLanes(server: McpServer, lane: Lane): void {
         decisions: z.string().optional(),
         nextAction: z.string().optional(),
       },
+      // Writes the lane's handoff file (not read-only) but only its own handoff
+      // (not destructive).
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async (input) => {
       const file = writeHandoff(lane, input, new Date().toISOString());
@@ -31,6 +34,7 @@ export function registerLanes(server: McpServer, lane: Lane): void {
     'recall_handoff',
     {
       description: `Load the latest handoff for THIS session's lane (${lane.label}), if any.`,
+      annotations: { readOnlyHint: true },
     },
     async () => text(readHandoff(lane) ?? `No handoff yet for lane ${lane.label}.`),
   );

@@ -144,6 +144,7 @@ export function registerGateway(
         query: z.string().describe('what you want to do, in plain words'),
         limit: z.number().int().min(1).max(50).optional(),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ query, limit }) => {
       // Search the cold index built from the cached manifest — no connect here. If the
@@ -168,6 +169,7 @@ export function registerGateway(
       description:
         'Get the full input schema for a qualified tool id (server.tool), so you can call it correctly.',
       inputSchema: { id: z.string().describe('e.g. playwright.browser_navigate') },
+      annotations: { readOnlyHint: true },
     },
     async ({ id }) => {
       const [serverName] = splitId(id);
@@ -190,6 +192,9 @@ export function registerGateway(
         id: z.string().describe('qualified id, e.g. github.create_pull_request'),
         args: z.record(z.string(), z.unknown()).optional(),
       },
+      // The downstream tool is unknown, so we can make no read-only/safety claim —
+      // only that it reaches outside this server (open-world).
+      annotations: { openWorldHint: true },
     },
     async ({ id, args }) => {
       const [serverName, toolName] = splitId(id);

@@ -92,6 +92,8 @@ export function registerMemory(server: McpServer, deps: MemoryDeps): void {
         links: z.array(z.string()).optional().describe('Ids of related memories (graph edges).'),
         scope: z.string().optional().describe('"project" | "global" | custom bucket.'),
       },
+      // Appends a new memory node (not read-only) without removing anything (not destructive).
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async (input) => {
       try {
@@ -120,6 +122,7 @@ export function registerMemory(server: McpServer, deps: MemoryDeps): void {
         limit: z.number().int().positive().max(50).optional(),
         scope: z.string().optional(),
       },
+      annotations: { readOnlyHint: true },
     },
     async (input) => {
       try {
@@ -149,6 +152,7 @@ export function registerMemory(server: McpServer, deps: MemoryDeps): void {
         depth: z.number().int().min(0).max(6).optional(),
         direction: z.enum(['out', 'in', 'both']).optional(),
       },
+      annotations: { readOnlyHint: true },
     },
     async (input) => {
       try {
@@ -171,6 +175,8 @@ export function registerMemory(server: McpServer, deps: MemoryDeps): void {
     {
       description: 'Forget a memory by id (appends a tombstone; it stops appearing in recall/walk).',
       inputSchema: { id: z.string() },
+      // Removes a memory from recall/walk — a destructive change to the graph.
+      annotations: { destructiveHint: true },
     },
     async (input) => {
       try {

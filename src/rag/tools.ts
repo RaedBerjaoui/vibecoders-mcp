@@ -26,6 +26,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { text, errorText } from '../util/mcp';
 import type { Logger } from '../util/logger';
+import type { HostProfile } from '../host/profile';
 
 /** The ordered set of deeper layers. Source of truth for the design_layer enum;
  *  parity with the loaded data is asserted in tests via fixtures so the enum and
@@ -101,8 +102,11 @@ export function renderLayer(layers: RagLayers, name: string, maxBytes = MAX_LAYE
 
 // ---- registration -----------------------------------------------------------
 
-export function registerRag(server: McpServer, deps: { log: Logger }): void {
-  const { log } = deps;
+export function registerRag(
+  server: McpServer,
+  deps: { log: Logger; getHost?: () => HostProfile },
+): void {
+  const { log, getHost } = deps;
   const data = loadRagData();
   if (data === null) {
     log.info(`[rag] no local design-RAG content at ${designRagDir()}; tools answer not-installed`);
@@ -114,6 +118,7 @@ export function registerRag(server: McpServer, deps: { log: Logger }): void {
       description:
         'Load the design-intelligence core of the anti-AI-design RAG: the standard that makes the output NOT read as AI-made and hold its formatting across every screen, the tells principle (displace the bias, never the surface instance), the build non-negotiables, and the menu of deeper layers. Call this FIRST when building ANY UI, website, page, component, or visual, then pull a layer with design_layer. Opt-in (features.rag).',
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => (data ? text(renderCore(data.core)) : text(NOT_INSTALLED)),
   );
@@ -126,11 +131,20 @@ export function registerRag(server: McpServer, deps: { log: Logger }): void {
       inputSchema: {
         layer: z.enum(LAYER_NAMES).describe('which layer to load'),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ layer }) => {
       if (!data) return text(NOT_INSTALLED);
       try {
-        return text(renderLayer(data.layers, layer));
+        let out = renderLayer(data.layers, layer);
+        // When the driving client generates images natively, steer toward it on
+        // the image layer — generate_image may be hidden as a duplicate there.
+        if (layer === 'image_gen' && getHost?.().native.imageGen) {
+          out +=
+            '\n\n(Host note: this client has native image generation — prefer it; ' +
+            'generate_image may be hidden as redundant.)';
+        }
+        return text(out);
       } catch (e) {
         log.warn(`[design_layer] ${(e as Error).message}`);
         return errorText(`design_layer failed: ${(e as Error).message}`);

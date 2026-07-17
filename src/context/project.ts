@@ -122,6 +122,7 @@ export function registerProjectContext(server: McpServer, getDeps: () => Context
         commits: z.number().int().min(0).max(30).optional().describe('How many recent commits (default 5).'),
         memories: z.number().int().min(0).max(30).optional().describe('How many recent memories (default 5).'),
       },
+      annotations: { readOnlyHint: true },
     },
     async (input) => {
       const base = getDeps();

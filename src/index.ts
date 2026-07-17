@@ -354,6 +354,7 @@ async function main(): Promise<void> {
       description:
         'Report Vibecoders status: capabilities, delegation providers, mounted servers, optional API keys, tool groups, and this session’s lane. Pass json:true for structured output. Never prints secret values.',
       inputSchema: { json: z.boolean().optional() },
+      annotations: { readOnlyHint: true },
     },
     async ({ json }) => {
       const data = buildDoctorData();
@@ -392,7 +393,7 @@ async function main(): Promise<void> {
     registerVault(server, { config: vibeConfig.vault ?? {}, log });
   }
   if (featureEnabled(vibeConfig, 'rag')) {
-    registerRag(server, { log });
+    registerRag(server, { log, getHost: () => host.profile });
   }
   if (featureEnabled(vibeConfig, 'skills')) {
     Object.assign(toolHandles, registerSkills(server, { getHost: () => host.profile, log }));

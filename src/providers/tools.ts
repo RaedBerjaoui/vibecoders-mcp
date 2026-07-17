@@ -1,19 +1,33 @@
 import { z } from 'zod';
 import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { availableProviders, getProvider } from './registry';
+import { availableProviders, getProvider, type AvailableProvider } from './registry';
 import { runDelegate } from './delegate';
 import { text, errorText } from '../util/mcp';
 import type { Logger } from '../util/logger';
 import type { TaskRegistry } from '../tasks/registry';
 import type { HostProfile } from '../host/profile';
 
-/** A one-line-per-provider summary of what's installed and how it bills. */
-export function summarizeProviders(): string {
-  const avail = availableProviders();
+/**
+ * A one-line-per-provider summary of what's installed and how it bills.
+ * `selfProviderId` (from the host profile) marks the provider that would just
+ * spawn another copy of the driving client, nudging toward a different engine.
+ * `providers` is injectable so tests don't depend on what's installed on PATH.
+ */
+export function summarizeProviders(
+  opts: { selfProviderId?: string; providers?: AvailableProvider[] } = {},
+): string {
+  const avail = opts.providers ?? availableProviders();
   if (!avail.length) {
     return 'No delegation CLIs found. Install codex, gemini, or claude to delegate work on your subscription.';
   }
-  return avail.map((a) => `- ${a.def.id} (${a.def.label}) — bills via ${a.def.billing}`).join('\n');
+  return avail
+    .map((a) => {
+      const line = `- ${a.def.id} (${a.def.label}) — bills via ${a.def.billing}`;
+      return opts.selfProviderId && a.def.id === opts.selfProviderId
+        ? `${line} ← the client currently driving (cross-model delegation usually adds more)`
+        : line;
+    })
+    .join('\n');
 }
 
 /**
@@ -32,8 +46,9 @@ export function registerProviders(
     {
       description:
         'List delegation providers whose CLI is installed and how each bills. Delegation routes a task to another coding agent on your subscription (its CLI), not a metered API.',
+      annotations: { readOnlyHint: true },
     },
-    async () => text(summarizeProviders()),
+    async () => text(summarizeProviders({ selfProviderId: getHost?.().selfProviderId })),
   );
 
   const delegate = server.registerTool(
@@ -57,6 +72,9 @@ export function registerProviders(
           .optional()
           .describe('run as a non-blocking background task; returns a task id immediately (manage with tasks_list/tasks_steer/tasks_interrupt)'),
       },
+      // Not read-only (mode:"write" edits files under cwd) but scoped, not
+      // destructive; runs an external coding agent (open-world).
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     async ({ provider, prompt, mode, model, cwd, background }) => {
       const def = getProvider(provider);

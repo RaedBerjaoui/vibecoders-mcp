@@ -45,6 +45,9 @@ export function registerCapabilities(
           .optional()
           .describe('force a specific provider instead of auto-resolving'),
       },
+      // Writes a file (not read-only) but only creates the target PNG (not
+      // destructive); reaches an external model/service (open-world).
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     async ({ prompt, out_path, size, model, provider }) => {
       const cap = getCapability('image_gen');
@@ -91,6 +94,8 @@ export function registerCapabilities(
           .optional()
           .describe('force a specific provider instead of auto-resolving'),
       },
+      // Read-only (returns results, changes nothing) but hits the live web (open-world).
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ query, count, model, provider }) => {
       const cap = getCapability('web_search');
