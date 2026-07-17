@@ -29,3 +29,20 @@ published runtime. Listed here for completeness.
 
 The full text of each license is available in the corresponding package under
 `node_modules/<package>/` after `npm install`, or from the linked project page.
+
+## Bundled skills - provenance
+
+The skills under `skills/` are original distillations written for this project.
+Each one is our own prose; no third-party text is copied. Where a skill's method
+was informed by a public, MIT-licensed collection, that skill carries a
+`Credits:` line naming the source. The sources referenced are:
+
+- [`obra/superpowers`](https://github.com/obra/superpowers) (MIT, Copyright (c)
+  2025 Jesse Vincent) informed the `debugging`, `tdd`, `verification`,
+  `planning`, and `parallel-work` skills.
+- [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills) (MIT)
+  informed the `code-review` and `security-review` skills.
+
+The `concise` and `design` skills are wholly ours and carry no third-party
+credit. A `Credits:` line acknowledges influence on method only; it does not
+indicate any copied text.
