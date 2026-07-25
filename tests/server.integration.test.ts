@@ -94,7 +94,7 @@ describe('vibecoders server (end-to-end over stdio)', () => {
 
       // The server advertises how to use itself (search→load→call, delegate, lanes).
       const info = client.getInstructions();
-      expect(info).toMatch(/search_tools/);
+      expect(info).not.toMatch(/search_tools/); // no downstream servers are mounted
       expect(info).toMatch(/delegate/);
       // Host matrix (unknown client): 'integration-test' matches no host family, so
       // the instructions carry NO "Driving client:" line (that's added only for a
@@ -149,6 +149,8 @@ describe('vibecoders server (end-to-end over stdio)', () => {
       // (c) The skills group is exposed (on by default; never hidden under Codex).
       const tools = (await client.listTools()).tools;
       const names = tools.map((t) => t.name);
+      expect(names).not.toContain('generate_image');
+      expect(names).not.toContain('web_search');
       expect(names).toContain('skill_list');
       expect(names).toContain('skill_load');
       // (d) doctor reports Codex as the DETECTED driver (from the clientInfo handshake).

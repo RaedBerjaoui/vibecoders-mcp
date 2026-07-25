@@ -74,6 +74,39 @@ describe('renderLayer', () => {
   });
 });
 
+describe('host-aware RAG rendering', () => {
+  const stale = 'STALE: call generate_image via codex-cli and require a subagent';
+  const layers = { directives: stale, scaffolds: stale, image_gen: stale, plain: stale };
+
+  it('places Codex binding policy before every imagery-bearing stale corpus body', () => {
+    expect(renderCore({ content: stale }, { host: PROFILES.codex }).indexOf('HOST EXECUTION POLICY')).toBe(0);
+    for (const name of ['directives', 'scaffolds', 'image_gen']) {
+      const out = renderLayer(layers, name, 200_000, { host: PROFILES.codex });
+      expect(out.indexOf('HOST EXECUTION POLICY')).toBe(0);
+      expect(out.indexOf(stale)).toBeGreaterThan(0);
+      expect(out).toMatch(/Never invoke or delegate to codex-cli/);
+    }
+    expect(renderLayer(layers, 'plain', 200_000, { host: PROFILES.codex })).toBe(stale);
+  });
+
+  it('uses host-specific safe policies and preserves non-JSON layers losslessly', () => {
+    expect(renderCore({ content: stale }, { host: PROFILES['claude-code'] })).toMatch(/generate_image path/);
+    expect(renderCore({ content: stale }, { host: PROFILES['gemini-cli'] })).toMatch(/do not assume a subagent suite/);
+    expect(renderLayer({ donts: 'not json' }, 'donts', 200_000, { host: PROFILES.codex })).toBe('not json');
+  });
+
+  it('filters models-tagged donts and recomputes exact counts without changing unknown payloads', () => {
+    const body = JSON.stringify({ tells: [
+      { id: 'shared', models: 'shared' }, { id: 'codex', models: ['codex'] }, { id: 'claude', models: 'claude' },
+    ], counts: { total: 99 } });
+    const read = (host: HostProfile) => JSON.parse(renderLayer({ donts: body }, 'donts', 200_000, { host }));
+    expect(read(PROFILES.codex)).toMatchObject({ tells: [{ id: 'shared' }, { id: 'codex' }], counts: { total: 2, claude: 0, codex: 1, shared: 1 } });
+    expect(read(PROFILES['claude-code'])).toMatchObject({ tells: [{ id: 'shared' }, { id: 'claude' }], counts: { total: 2, claude: 1, codex: 0, shared: 1 } });
+    expect(read(PROFILES['gemini-cli'])).toMatchObject({ tells: [{ id: 'shared' }], counts: { total: 1, claude: 0, codex: 0, shared: 1 } });
+    expect(renderLayer({ donts: body }, 'donts', 200_000, { host: PROFILES.unknown })).toBe(body);
+  });
+});
+
 describe('availableLayers', () => {
   it('lists the layer keys', () => {
     expect(availableLayers(fixtureLayers)).toEqual(['donts', 'scaffolds']);
@@ -139,7 +172,7 @@ describe('build-rag-data.mjs generator parity', () => {
       'scaffolds.css': '.shell { display: grid }',
       'type-pointers-index.md': 'type pointers index',
       'type-pointers.json': '{"pointers":[]}',
-      'image-gen.md': 'imagery',
+      'image-gen.md': 'CLAUDE_SPECIFIC_IMAGE_MARKER',
     };
     for (const [p, body] of Object.entries(sources)) writeFileSync(join(src, p), body);
 
@@ -155,6 +188,7 @@ describe('build-rag-data.mjs generator parity', () => {
     expect(Object.keys(layers).sort()).toEqual([...LAYER_NAMES].sort());
     expect(core.content).toMatch(/THE STANDARD/);
     expect(core.content).toMatch(/design_layer/);
+    expect(layers.image_gen).not.toContain('CLAUDE_SPECIFIC_IMAGE_MARKER');
     for (const [name, body] of Object.entries(layers)) {
       expect(body.length, name).toBeGreaterThan(0);
     }
@@ -231,10 +265,8 @@ describe('registerRag — tools over MCP transport', () => {
   });
 });
 
-// design_layer appends a host note on the image_gen layer ONLY when the driving
-// client generates images natively (so generate_image is likely hidden as a
-// duplicate). Wired via the optional getHost dep; other layers/hosts are untouched.
-describe('registerRag — design_layer image_gen host note', () => {
+// RAG prepends a binding host policy before imagery corpus text.
+describe('registerRag — prepended host execution policy', () => {
   async function connectWithHost(getHost: () => HostProfile) {
     const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -255,7 +287,7 @@ describe('registerRag — design_layer image_gen host note', () => {
       }
     ).content[0]!.text;
 
-  it('appends the note on image_gen when the host has native image generation (codex)', async () => {
+  it('prepends Codex policy on image_gen when native image generation is available', async () => {
     const dir = writeImageGenContentDir();
     tempDirs.push(dir);
     process.env.VIBECODERS_DESIGN_RAG_DIR = dir;
@@ -263,13 +295,13 @@ describe('registerRag — design_layer image_gen host note', () => {
     try {
       const out = await layerText(client, 'image_gen');
       expect(out).toContain('RENDER WITH generate_image'); // real layer body preserved
-      expect(out).toMatch(/Host note:.*native image generation/);
+      expect(out.indexOf('HOST EXECUTION POLICY')).toBe(0);
     } finally {
       await client.close();
     }
   });
 
-  it('does NOT append the note when the host lacks native image gen (claude-code)', async () => {
+  it('prepends Claude policy when the host lacks native image generation', async () => {
     const dir = writeImageGenContentDir();
     tempDirs.push(dir);
     process.env.VIBECODERS_DESIGN_RAG_DIR = dir;
@@ -277,13 +309,13 @@ describe('registerRag — design_layer image_gen host note', () => {
     try {
       const out = await layerText(client, 'image_gen');
       expect(out).toContain('RENDER WITH generate_image');
-      expect(out).not.toMatch(/Host note/);
+      expect(out.indexOf('HOST EXECUTION POLICY')).toBe(0);
     } finally {
       await client.close();
     }
   });
 
-  it('never appends the note on a NON-image layer, even when the host has native image gen', async () => {
+  it('does not add policy to non-imagery layers', async () => {
     const dir = writeImageGenContentDir();
     tempDirs.push(dir);
     process.env.VIBECODERS_DESIGN_RAG_DIR = dir;

@@ -96,6 +96,11 @@ describe('loadSkill', () => {
     const codex = loadSkill({ bundled: FIXTURES }, 'good-skill', 'codex');
     expect(codex).toContain('apply_patch');
     expect(codex).toContain('spawn_agent');
+    expect(codex).toContain('exec_command');
+    expect(codex).toContain('send_message');
+    expect(codex).toContain('interrupt_agent');
+    expect(codex).not.toContain('close_agent');
+    expect(codex).not.toMatch(/\| run a command \| shell \|/);
 
     const claude = loadSkill({ bundled: FIXTURES }, 'good-skill', 'claude-code');
     expect(claude).toContain('TodoWrite');

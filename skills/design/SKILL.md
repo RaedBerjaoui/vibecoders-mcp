@@ -24,7 +24,7 @@ Default model output has a look: safe spacing, stock layout, the same three font
    - `type_pointers`: typography direction, pairing, and scale.
 3. **Handle imagery deliberately.**
    - If your client has native image generation, use it.
-   - Otherwise call `generate_image`.
+   - Otherwise use `generate_image` only when it is actually surfaced as an alternate engine.
    - Iterate the still until it is right BEFORE you animate anything. Motion multiplies the cost of a bad frame.
 4. **Hold the non-negotiables until it ships.** The rules from `design_core` are constraints, not suggestions. Do not relax them because iteration got tedious; that is exactly when generic creeps back in.
 
@@ -44,7 +44,7 @@ Default model output has a look: safe spacing, stock layout, the same three font
 1. `design_core` for the standard.
 2. `design_layer` for the specific decision in front of you.
 3. Build against a scaffold, never a blank page.
-4. Imagery: native generation if the client has it, otherwise `generate_image`; the still before any motion.
+4. Imagery: native generation first. Never delegate back into the same host CLI merely to reach an image model; use an exposed alternate engine only when intentionally selected. Load expensive design layers once and reuse them; the still before any motion.
 5. Check the result against `donts`, then ship.
 
 ## If the RAG is not installed

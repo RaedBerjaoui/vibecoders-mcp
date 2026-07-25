@@ -1,8 +1,8 @@
 # Vibecoders MCP
 
 **One MCP that turns your coding agent into your whole dev stack.** It swallows every
-other MCP server, delegates to Codex & Gemini on *your* CLI subscriptions (not a
-metered API), remembers your projects in a searchable knowledge graph, and
+other MCP server, delegates across Claude, Codex, and Gemini on *your* CLI
+subscriptions (not a metered API), remembers your projects in a searchable knowledge graph, and
 carries your setup across sessions — **secret-free by design, and optional all
 the way down.**
 
@@ -69,8 +69,9 @@ family match to Codex, Claude Code, or Gemini CLI), then a neutral fallback. Set
 - **Instructions.** Per-host and self-contained, with a core kept under 512
   characters, because Codex folds the server instructions into every tool's
   namespace description.
-- **Tool visibility.** `generate_image` hides under Codex when the image provider
-  is Codex's own engine; `web_search` hides under Gemini CLI on gemini engines.
+- **Tool visibility.** The driving client sees only useful additions: Codex keeps
+  native imagery first and exposes `generate_image` only for a ready alternate
+  engine; `web_search` appears there only when a live provider is ready.
 - **Tool descriptions.** `delegate` and `web_search` gain per-host advice (under
   Codex, prefer `background:true`, whose foreground MCP calls time out near 60s).
 - **`doctor`.** A driver line, host-aware restart hints, and a host block in its
@@ -128,7 +129,7 @@ is always on.
 ## What you get
 
 ### 1. Swallow every other MCP server
-Instead of every downstream tool flooding context, Claude sees a few meta-tools
+Instead of every downstream tool flooding context, the driving client sees a few meta-tools
 and pulls the rest in on demand: `search_tools` → `load_tool` → `call_tool`.
 Mount Playwright, GitHub, Vercel, Supabase, … in `servers.json`; they load
 **lazily**, so hundreds of tools cost almost no context.
@@ -157,17 +158,17 @@ Reference any secret a server needs by **env-var name** in an `"env": [...]`
 array — never paste values. `lazy: true` (the default) keeps a server cold until
 first use; set `lazy: false` on the one or two you reach for every session.
 
-**Worked example** — find a tool, load it, call it (Claude does this for you):
+**Worked example** — find a tool, load it, and call it:
 
 ```
 search_tools  { "query": "screenshot" }
               → playwright.browser_take_screenshot — Take a screenshot of the current page
-load_tool     { "name": "playwright.browser_take_screenshot" }   # returns its input schema
-call_tool     { "name": "playwright.browser_take_screenshot", "arguments": { "filename": "home.png" } }
+load_tool     { "id": "playwright.browser_take_screenshot" }   # returns its input schema
+call_tool     { "id": "playwright.browser_take_screenshot", "args": { "filename": "home.png" } }
 ```
 
-### 2. Delegate to Codex & Gemini — on your subscription, not the API
-Claude can offload work to another coding agent through its **CLI**, so billing
+### 2. Delegate across engines — on your subscription, not the API
+The driving client can offload work to an installed non-self coding agent through its **CLI**, so billing
 flows through the plan you already pay for:
 
 - **CLI, not API, on purpose.** `delegate` runs `codex exec`, `gemini -p`, or
@@ -176,12 +177,12 @@ flows through the plan you already pay for:
 - **No keys to leak.** The CLIs hold their own auth.
 - **Run it in the background.** Pass `background: true` and `delegate` returns a
   task id immediately instead of blocking — manage it with `tasks_list` /
-  `tasks_steer` / `tasks_interrupt`, so a long codex/gemini run never stalls Claude.
+  `tasks_steer` / `tasks_interrupt`, so a long run never stalls the driving client.
 
-**Worked example** — hand a write task to Codex (defaults to read-only; opt into edits):
+**Worked example** — from Codex, hand a write task to Claude (defaults to read-only; opt into edits):
 
 ```
-delegate  { "provider": "codex",
+delegate  { "provider": "claude",
             "prompt": "Add a --json flag to the doctor command and update its test",
             "mode": "write" }
 ```
@@ -272,20 +273,20 @@ design task needs it:
 - **`design_layer`** pulls one deeper layer only when the build needs it:
   `donts` (the vibecoded-tells catalogue), `formatting`, `directives`,
   `scaffolds`, `type_pointers`, and `image_gen`.
-- **Imagery composes for free.** The `image_gen` layer can point the model
-  straight at `generate_image`, so generated, on-concept imagery is part of the
-  same flow.
+- **Imagery follows runtime host policy.** Codex uses native image generation first;
+  `generate_image` is used only when listed as a configured alternate/fallback.
+  The `donts` layer is filtered to shared guidance plus the driving host.
 
 Always-on cost is one line in the server instructions. The core loads only when a
 design task starts, and a layer only when it is pulled, so nothing bloats.
 
-**Worked example** (load the core, pull a layer, render imagery):
+**Worked example** (load the core, pull layers, then use the image capability surfaced to this client):
 
 ```
 design_core                             # your standard + non-negotiables; do this first
 design_layer  { "layer": "donts" }      # your vibecoded-tells self-check catalogue
 design_layer  { "layer": "scaffolds" }  # occupancy-correct section scaffolds, pulled when composing
-generate_image { "prompt": "...", "out_path": "/abs/out/hero.png" }
+# Codex: use native image generation. Other hosts: call generate_image only when listed.
 ```
 
 ## Skills
@@ -297,7 +298,7 @@ by default:
 - **`skill_list`** lists the available skills with their one-line descriptions.
 - **`skill_load`** loads one skill's body, with a per-host appendix so the steps
   name the driving client's real tools (Claude Code names, or Codex
-  `shell`/`apply_patch`/`spawn_agent`/`update_plan`).
+  `exec_command`/`apply_patch`/`spawn_agent`/`wait_agent`/`send_message`/`interrupt_agent`/`update_plan`).
 
 **The nine bundled skills:**
 
@@ -345,7 +346,7 @@ Vibecoders runs under Claude Code, Codex, or Gemini CLI; the author drives it fr
 | memory · reference · project_context · tasks | on by default | — |
 | device search · notes vault | opt-in (off) | `vibecoders config set features.device true` · `… features.vault true` |
 
-The CLI-on-subscription path above needs **zero secrets** — each CLI authenticates itself, and spawned CLIs receive only a non-secret env allowlist by default (`delegation.envMode=minimal`), so an unrelated key in your shell never reaches them. Prefer an API provider instead? Put the key in the Keychain or `.env` per [Bring your own keys](#bring-your-own-keys-never-the-authors) and pin it, e.g. `vibecoders config set capabilities.image_gen.provider openai-api`.
+The author's `codex-cli` image pin remains useful when Claude Code drives; when Codex drives, it is ignored as redundant because Codex uses native image generation. The CLI-on-subscription path above needs **zero secrets** — each CLI authenticates itself, and spawned CLIs receive only a non-secret env allowlist by default (`delegation.envMode=minimal`), so an unrelated key in your shell never reaches them. Prefer an API provider instead? Put the key in the Keychain or `.env` per [Bring your own keys](#bring-your-own-keys-never-the-authors) and pin it, e.g. `vibecoders config set capabilities.image_gen.provider openai-api`.
 
 ## Bring your own keys (never the author's)
 

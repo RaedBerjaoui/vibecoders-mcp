@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { text, errorText, setResponseRedactor, resetResponseRedactor } from '../src/util/mcp';
+import { text, errorText, redactMcpResult, setResponseRedactor, resetResponseRedactor } from '../src/util/mcp';
 import { makeRedactor } from '../src/util/redact';
 import { ToolIndex } from '../src/gateway/registry';
 import { registerGateway } from '../src/gateway/lazyTools';
@@ -76,6 +76,23 @@ describe('T10 response redactor — util chokepoint (text/errorText)', () => {
     setResponseRedactor(makeRedactor([PLANTED_SECRET]));
     const benign = 'Found 5 result(s) via Brave. see https://github.com/foo/bar v1.2.3';
     expect(textOf(text(benign))).toBe(benign);
+  });
+
+  it('recursively redacts native mixed MCP results without changing media blocks or result fields', () => {
+    setResponseRedactor(makeRedactor([PLANTED_SECRET]));
+    const result = redactMcpResult({
+      content: [
+        { type: 'text', text: `secret ${PLANTED_SECRET}` },
+        { type: 'image', data: 'unchanged-image-data', mimeType: 'image/png' },
+        { type: 'audio', data: 'unchanged-audio-data', mimeType: 'audio/wav' },
+      ],
+      structuredContent: { nested: { token: PLANTED_SECRET } },
+      _meta: { diagnostic: PLANTED_SECRET }, isError: true,
+    });
+    expect(result.content[1]).toMatchObject({ type: 'image', data: 'unchanged-image-data' });
+    expect(result.content[2]).toMatchObject({ type: 'audio', data: 'unchanged-audio-data' });
+    expect(JSON.stringify(result)).not.toContain(PLANTED_SECRET);
+    expect(result).toMatchObject({ isError: true, structuredContent: { nested: { token: '***' } } });
   });
 });
 

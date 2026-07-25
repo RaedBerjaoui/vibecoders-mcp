@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Adapt host-visible tools and instructions to ready alternate providers, keeping Codex native image generation first.
+- Apply binding host execution policy and host-filtered `donts` when rendering design RAG content.
+
+### Fixed
+
+- Preserve native downstream MCP results and metadata through the gateway while redacting nested text.
+
 ## [0.4.0]
 
 ### Added
@@ -34,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`~/.vibecoders/skills` overrides same-named skills; `VIBECODERS_SKILLS_DIR`
   pins a directory). The loader appends a per-host tool-name appendix so the
   steps name the driving client's real tools (Claude Code names, or Codex
-  `shell`/`apply_patch`/`spawn_agent`/`update_plan`). Original distillations;
+  `exec_command`/`apply_patch`/`spawn_agent`/`wait_agent`/`send_message`/`interrupt_agent`/`update_plan`). Original distillations;
   provenance in `NOTICE.md`. Skills complement, not replace, a client's native
   skill system.
 - **MCP annotations on every tool.** Each tool now carries `readOnlyHint`,

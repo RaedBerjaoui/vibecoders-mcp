@@ -268,12 +268,16 @@ async function main(): Promise<void> {
     return {
       imageRedundant:
         host.profile.native.imageGen &&
-        imageProviderId !== undefined &&
-        ['codex-cli', 'openai-api'].includes(imageProviderId),
+        (!imageProviderId || ['codex-cli', 'openai-api'].includes(imageProviderId)),
       searchRedundant:
-        host.profile.id === 'gemini-cli' &&
-        searchProviderId !== undefined &&
-        ['gemini-cli', 'gemini-api'].includes(searchProviderId),
+        (host.profile.id === 'codex' && !searchProviderId) ||
+        (host.profile.id === 'gemini-cli' &&
+          searchProviderId !== undefined &&
+          ['gemini-cli', 'gemini-api'].includes(searchProviderId)),
+      imageAvailable: imageProviderId !== undefined,
+      searchAvailable: searchProviderId !== undefined,
+      gatewayReady: Object.keys(servers).length > 0,
+      delegationReady: availableProviders().some((provider) => provider.def.id !== host.profile.selfProviderId),
       skillsEnabled: featureEnabled(vibeConfig, 'skills'),
       memoryEnabled: featureEnabled(vibeConfig, 'memory'),
       ragEnabled: featureEnabled(vibeConfig, 'rag'),
@@ -393,7 +397,11 @@ async function main(): Promise<void> {
     registerVault(server, { config: vibeConfig.vault ?? {}, log });
   }
   if (featureEnabled(vibeConfig, 'rag')) {
-    registerRag(server, { log, getHost: () => host.profile });
+    registerRag(server, {
+      log,
+      getHost: () => host.profile,
+      getImageProviderId: () => capabilityProviderIds().imageProviderId,
+    });
   }
   if (featureEnabled(vibeConfig, 'skills')) {
     Object.assign(toolHandles, registerSkills(server, { getHost: () => host.profile, log }));

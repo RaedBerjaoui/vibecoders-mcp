@@ -19,9 +19,11 @@ const IMAGE_ALT_PREFIX = 'Alternate engine to your native image generation. ';
 const SEARCH_LIVE_PREFIX =
   'Live grounded web search (your native web.run defaults to a cached index). ';
 const CODEX_NOTE =
-  ' You are running in Codex: delegate to claude or gemini for a second engine; prefer background:true for long tasks (Codex kills foreground MCP calls at ~60s by default).';
-const CLAUDE_NOTE = ' You are running in Claude Code: codex or gemini give you a second engine.';
-const GEMINI_NOTE = ' You are running in Gemini CLI: claude or codex give you a second engine.';
+  ' You are running in Codex: call list_providers and delegate only to an installed non-self engine; prefer background:true for long tasks (Codex kills foreground MCP calls at ~60s by default).';
+const CLAUDE_NOTE =
+  ' You are running in Claude Code: call list_providers and delegate only to an installed non-self engine.';
+const GEMINI_NOTE =
+  ' You are running in Gemini CLI: call list_providers and delegate only to an installed non-self engine.';
 
 /** Build a fresh server with three stub tools and capture their handles. */
 function build() {
@@ -57,23 +59,27 @@ describe('applyHostAdaptations — Codex image rules', () => {
     expect(generate_image.description).toBe(IMAGE_ALT_PREFIX + GEN_ORIG);
   });
 
-  it('leaves generate_image untouched when no image provider is resolved', () => {
+  it('hides generate_image when no image provider is resolved', () => {
     const { handles, generate_image } = build();
     const log = applyHostAdaptations(PROFILES.codex, handles, {});
-    expect(generate_image.enabled).toBe(true);
+    expect(generate_image.enabled).toBe(false);
     expect(generate_image.description).toBe(GEN_ORIG);
-    expect(log).not.toContain(
-      'hid generate_image (Codex has native image generation on the same engine)',
-    );
+    expect(log).toContain('hid generate_image (Codex has native image generation on the same engine)');
   });
 });
 
 describe('applyHostAdaptations — web_search rules', () => {
-  it('reframes web_search on Codex as the LIVE path vs its cached web.run', () => {
+  it('exposes and labels Codex web_search when a live provider is ready', () => {
     const { handles, web_search } = build();
-    applyHostAdaptations(PROFILES.codex, handles, {});
+    applyHostAdaptations(PROFILES.codex, handles, { searchProviderId: 'gemini-api' });
     expect(web_search.enabled).toBe(true);
     expect(web_search.description).toBe(SEARCH_LIVE_PREFIX + WS_ORIG);
+  });
+  it('hides web_search on Codex when no provider is ready', () => {
+    const { handles, web_search } = build();
+    applyHostAdaptations(PROFILES.codex, handles, {});
+    expect(web_search.enabled).toBe(false);
+    expect(web_search.description).toBe(WS_ORIG);
   });
 
   it('HIDES web_search on Gemini CLI when the search engine is Gemini', () => {
@@ -157,8 +163,8 @@ describe('applyHostAdaptations — host gating (untouched surfaces)', () => {
 describe('applyHostAdaptations — idempotency (initialize can fire twice)', () => {
   it('does not double-apply description prefixes/suffixes and returns a stable log', () => {
     const { handles, generate_image, web_search, delegate } = build();
-    const first = applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'gemini-api' });
-    const second = applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'gemini-api' });
+    const first = applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'gemini-api', searchProviderId: 'gemini-api' });
+    const second = applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'gemini-api', searchProviderId: 'gemini-api' });
     expect(second).toEqual(first);
     expect(generate_image.description).toBe(IMAGE_ALT_PREFIX + GEN_ORIG); // NOT doubled
     expect(web_search.description).toBe(SEARCH_LIVE_PREFIX + WS_ORIG);
@@ -179,7 +185,7 @@ describe('applyHostAdaptations — convergence across a host switch (reset pass)
   it('codex(HIDE) → claude-code un-hides generate_image and restores pristine web_search text', () => {
     const { handles, generate_image, web_search, delegate } = build();
     // Codex first: hides generate_image (same engine) and reframes web_search as live.
-    applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'codex-cli' });
+    applyHostAdaptations(PROFILES.codex, handles, { imageProviderId: 'codex-cli', searchProviderId: 'gemini-api' });
     expect(generate_image.enabled).toBe(false);
     expect(web_search.description).toBe(SEARCH_LIVE_PREFIX + WS_ORIG);
     // Then a Claude Code reconnect on the SAME handles must converge to Claude state —

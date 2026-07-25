@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { ServerDef, ToolMeta } from './registry';
 import { ToolIndex, loadManifest, saveManifest } from './registry';
 import type { Connector } from './connector';
 import type { Logger } from '../util/logger';
-import { text, errorText } from '../util/mcp';
+import { text, errorText, redactMcpResult } from '../util/mcp';
 
 /** Defaults for bounding search_tools output so a verbose server can't dump thousands of tokens. */
 const DEFAULT_MAX_DESC_CHARS = 160; // ~1–2 lines per hit
@@ -179,7 +180,19 @@ export function registerGateway(
       if (!meta) return errorText(`Tool "${id}" not found.`);
       const full = (await connector.listTools(serverName)).find((t) => t.name === meta.name);
       return text(
-        JSON.stringify({ id, description: meta.description, inputSchema: full?.inputSchema }, null, 2),
+        JSON.stringify(
+          {
+            id,
+            description: meta.description,
+            title: full?.title,
+            inputSchema: full?.inputSchema,
+            outputSchema: full?.outputSchema,
+            annotations: full?.annotations,
+            ...full,
+          },
+          null,
+          2,
+        ),
       );
     },
   );
@@ -201,7 +214,7 @@ export function registerGateway(
       if (!connector.has(serverName)) return errorText(`Unknown server in "${id}". Add it to servers.json.`);
       try {
         const result = await connector.callTool(serverName, toolName, args ?? {});
-        return text(JSON.stringify(result));
+        return redactMcpResult(result) as CallToolResult;
       } catch (e) {
         return errorText(`Call failed: ${(e as Error).message}`);
       }

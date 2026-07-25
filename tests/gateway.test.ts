@@ -12,7 +12,7 @@ import {
   loadManifest,
   saveManifest,
 } from '../src/gateway/registry';
-import { connectEagerServers, formatHits } from '../src/gateway/lazyTools';
+import { connectEagerServers, formatHits, registerGateway } from '../src/gateway/lazyTools';
 import { Connector } from '../src/gateway/connector';
 import type { Logger } from '../src/util/logger';
 
@@ -20,6 +20,32 @@ const silentLog: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 const echoServer = fileURLToPath(new URL('./fixtures/mcp-echo-server.mjs', import.meta.url));
 const spawnCount = (marker: string): number =>
   existsSync(marker) ? readFileSync(marker, 'utf8').trim().split('\n').filter(Boolean).length : 0;
+
+describe('gateway native MCP result and metadata forwarding', () => {
+  it('keeps downstream mixed content/result fields native and returns complete load metadata', async () => {
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const downstream = {
+      has: () => true,
+      listTools: async () => [{ name: 'mixed', description: 'mixed', title: 'Mixed tool', inputSchema: { type: 'object' }, outputSchema: { type: 'object' }, annotations: { readOnlyHint: true }, extra: 'kept' }],
+      callTool: async () => ({ content: [{ type: 'text', text: 'hello' }, { type: 'image', data: 'img', mimeType: 'image/png' }, { type: 'audio', data: 'aud', mimeType: 'audio/wav' }], structuredContent: { ok: true }, _meta: { source: 'downstream' }, isError: true }),
+    };
+    const server = new McpServer({ name: 'test', version: '0' });
+    registerGateway(server, { down: { command: 'noop', args: [], env: [], lazy: true } }, downstream as never, new ToolIndex(), silentLog);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0' });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    try {
+      const loaded = await client.callTool({ name: 'load_tool', arguments: { id: 'down.mixed' } }) as { content: Array<{ text: string }> };
+      expect(JSON.parse(loaded.content[0]!.text)).toMatchObject({ id: 'down.mixed', title: 'Mixed tool', inputSchema: { type: 'object' }, outputSchema: { type: 'object' }, annotations: { readOnlyHint: true }, extra: 'kept' });
+      const result = await client.callTool({ name: 'call_tool', arguments: { id: 'down.mixed', args: {} } }) as { content: Array<{ type: string; data?: string }>; structuredContent: unknown; _meta: unknown; isError: boolean };
+      expect(result).toMatchObject({ structuredContent: { ok: true }, _meta: { source: 'downstream' }, isError: true });
+      expect(result.content.find((block) => block.type === 'image')).toMatchObject({ data: 'img' });
+      expect(result.content.find((block) => block.type === 'audio')).toMatchObject({ data: 'aud' });
+    } finally { await client.close(); }
+  });
+});
 
 describe('servers.json resolution (works from any cwd)', () => {
   it('prefers $VIBECODERS_SERVERS, then the global ~/.vibecoders, then ./servers.json', () => {

@@ -41,7 +41,7 @@ The text above is the always-loaded core: the anti-AI-design standard, the tells
 - \`directives\` — hard build directives: how to SOURCE visuals and STRUCTURE a one-page site, each a floor with a fixed replacement.
 - \`scaffolds\` — the occupancy-correct section scaffolds and their CSS: every section starts from one, one dominant each, no dead empty half. Pull when composing sections.
 - \`type_pointers\` — formatting-safe typographic elevation; changes how type READS, never how the box lays out.
-- \`image_gen\` — how to generate and place imagery that belongs. Generate every visual with the \`generate_image\` tool (give it an absolute out_path inside your build dir); never hand-draw an SVG stand-in.
+- \`image_gen\` — how to generate and place imagery that belongs. Runtime host policy chooses the execution mechanism; never hand-draw an SVG stand-in.
 `;
 
 const core = { content: read('dos.md') + LAYER_INDEX };
@@ -51,7 +51,8 @@ const layers = {
   directives: `${read('directives-index.md')}\n\n${read('directives.json')}`,
   scaffolds: `${read('scaffolds-index.md')}\n\n${read('scaffolds.json')}\n\n\`\`\`css\n${read('scaffolds.css')}\n\`\`\`\n`,
   type_pointers: `${read('type-pointers-index.md')}\n\n${read('type-pointers.json')}`,
-  image_gen: read('image-gen.md'),
+  image_gen:
+    '## Host-neutral imagery policy\n\nCreate intentional imagery that belongs to the composition. Vibecoders runtime policy decides whether to use native generation or an exposed alternate engine; do not infer a host-specific command from this corpus. Never substitute a hand-drawn SVG for a needed visual.',
 };
 
 writeFileSync(join(OUT, 'core.json'), `${JSON.stringify(core, null, 2)}\n`);

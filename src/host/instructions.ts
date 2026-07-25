@@ -10,21 +10,15 @@ export interface InstructionsCtx {
   imageRedundant: boolean;
   /** Host natively covers web_search (the tool is hidden) → drop the search bullet. */
   searchRedundant: boolean;
+  imageAvailable?: boolean;
+  searchAvailable?: boolean;
+  gatewayReady?: boolean;
+  delegationReady?: boolean;
   skillsEnabled: boolean;
   memoryEnabled: boolean;
   ragEnabled: boolean;
   tasksEnabled: boolean;
 }
-
-const PROVIDERS = ['claude', 'codex', 'gemini'] as const;
-type ProviderId = (typeof PROVIDERS)[number];
-
-/** Name used when warning that delegating to yourself just clones the host. */
-const SELF_NAME: Record<ProviderId, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  gemini: 'Gemini CLI',
-};
 
 /**
  * Build the server's `instructions` string (returned in the MCP initialize
@@ -37,13 +31,29 @@ const SELF_NAME: Record<ProviderId, string> = {
  * bullets. Deterministic (no clock, no randomness) so the handshake is stable.
  */
 export function instructionsFor(p: HostProfile, ctx: InstructionsCtx): string {
+  // Codex attaches server instructions broadly. Keep this branch deliberately
+  // small and advertise only additive, currently useful Vibecoders surfaces.
+  if (p.id === 'codex') {
+    const lines = ['Driving client: OpenAI Codex. Use your native image generation, skills, and subagents first. Additions:'];
+    if (ctx.ragEnabled) lines.push('design_core/design_layer;');
+    if (ctx.skillsEnabled) lines.push('skill_list/skill_load;');
+    if (ctx.imageAvailable && !ctx.imageRedundant)
+      lines.push('generate_image only as intentionally selected alternate;');
+    if (ctx.searchAvailable && !ctx.searchRedundant)
+      lines.push('web_search is live alternate to web.run;');
+    if (ctx.gatewayReady) lines.push('search_tools/load_tool/call_tool;');
+    if (ctx.delegationReady) lines.push('delegate to an installed non-Codex engine (call list_providers); long calls background:true;');
+    if (ctx.memoryEnabled) lines.push('memory_store/memory_recall;');
+    lines.push('write_handoff/recall_handoff, project_context, doctor.');
+    return lines.join('\n');
+  }
   // ---- Core: neutral, dense, self-contained, ≤512 chars. Flagships, priority order.
   const core = [
     'Vibecoders is an MCP control plane. Tools, highest-value first:',
-    'design_core — the anti-AI-design standard for any UI work;',
+    ctx.ragEnabled ? 'design_core — the anti-AI-design standard for any UI work;' : '',
     ctx.skillsEnabled ? 'skill_list/skill_load — curated engineering playbooks;' : '',
-    'delegate — hand a task to another agent CLI on your subscription;',
-    'search_tools→load_tool→call_tool — a lazy gateway over mounted MCP servers;',
+    ctx.delegationReady ? 'delegate — hand a task to another agent CLI on your subscription;' : '',
+    ctx.gatewayReady ? 'search_tools→load_tool→call_tool — a lazy gateway over mounted MCP servers;' : '',
     'write_handoff/recall_handoff — per-lane continuity;',
     ctx.memoryEnabled ? 'memory_store/memory_recall — a per-user knowledge graph;' : '',
     'project_context and doctor to orient.',
@@ -60,28 +70,20 @@ export function instructionsFor(p: HostProfile, ctx: InstructionsCtx): string {
     .join(' ');
 
   // ---- Imagery sub-line depends on what the host already generates natively.
-  const imagery = ctx.imageRedundant
-    ? 'Render imagery with your native image generation.'
-    : p.native.imageGen
-      ? 'Render imagery natively or via generate_image (alternate engine).'
-      : 'Render imagery with generate_image.';
+  const imagery = p.native.imageGen
+    ? ctx.imageAvailable && !ctx.imageRedundant
+      ? 'Render imagery natively; generate_image is an alternate engine.'
+      : 'Render imagery with your native image generation.'
+    : ctx.imageAvailable
+      ? 'Render imagery with configured generate_image.'
+      : 'Use supplied assets or type-led composition when no image engine is configured.';
 
   // ---- Delegate targets = the OTHER engines; delegating to yourself just clones you.
-  const targets = PROVIDERS.filter((id) => id !== p.selfProviderId);
-  const targetList =
-    targets.length === 3
-      ? `${targets[0]}, ${targets[1]}, or ${targets[2]}`
-      : `${targets[0]} or ${targets[1]}`;
-  const selfClause = p.selfProviderId
-    ? `; delegating to ${p.selfProviderId} spawns a second ${SELF_NAME[p.selfProviderId]}`
-    : '';
   // Generic background hint for most hosts; Codex kills foreground MCP calls at
   // ~60s, so there it becomes a hard rule with the config knob attached.
   const tasksLine = !ctx.tasksEnabled
     ? ''
-    : p.id === 'codex'
-      ? ' Long tasks: always background:true — Codex times out foreground calls near 60s (raise tool_timeout_sec in config.toml); manage via tasks_list / tasks_steer / tasks_interrupt.'
-      : ' Add background:true to fire without blocking; manage via tasks_list / tasks_steer / tasks_interrupt.';
+    : ' Add background:true to fire without blocking; manage via tasks_list / tasks_steer / tasks_interrupt.';
 
   const bullets: string[] = [];
 
@@ -92,26 +94,22 @@ export function instructionsFor(p: HostProfile, ctx: InstructionsCtx): string {
   }
 
   if (ctx.skillsEnabled) {
-    const skillsExtra =
-      p.id === 'codex' ? ' Complements your .agents/skills — the curated vibecoders set.' : '';
+    const skillsExtra = '';
     bullets.push(
       `• Reach for a playbook: skill_list shows the set (debugging, TDD, verification, planning, parallel work, code + security review, design); skill_load one before nontrivial work of that kind.${skillsExtra}`,
     );
   }
 
-  bullets.push(
+  if (ctx.gatewayReady) bullets.push(
     "• Swallow other MCP servers: don't dump downstream tools into context — search_tools → load_tool → call_tool finds and runs any mounted server's tool on demand; hundreds cost almost nothing.",
   );
 
-  bullets.push(
-    `• Delegate on YOUR subscription (not a metered API): list_providers, then delegate a task to ${targetList} — a second engine catches blind spots you'd miss alone${selfClause}. Read-only unless you pass mode:"write".${tasksLine}`,
+  if (ctx.delegationReady) bullets.push(
+    `• Delegate on YOUR subscription (not a metered API): call list_providers, then delegate to an installed non-self engine for a second perspective. Read-only unless you pass mode:"write".${tasksLine}`,
   );
 
-  if (!ctx.searchRedundant) {
-    const webExtra =
-      p.id === 'codex'
-        ? ' (complements your native web.run, a cached index by default)'
-        : '';
+  if (ctx.searchAvailable && !ctx.searchRedundant) {
+    const webExtra = '';
     bullets.push(
       `• Search the live web: web_search returns live, grounded, ranked results${webExtra}.`,
     );

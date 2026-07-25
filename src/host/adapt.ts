@@ -41,9 +41,11 @@ const SEARCH_LIVE_PREFIX =
   'Live grounded web search (your native web.run defaults to a cached index). ';
 const DELEGATE_NOTE: Partial<Record<HostId, string>> = {
   codex:
-    ' You are running in Codex: delegate to claude or gemini for a second engine; prefer background:true for long tasks (Codex kills foreground MCP calls at ~60s by default).',
-  'claude-code': ' You are running in Claude Code: codex or gemini give you a second engine.',
-  'gemini-cli': ' You are running in Gemini CLI: claude or codex give you a second engine.',
+    ' You are running in Codex: call list_providers and delegate only to an installed non-self engine; prefer background:true for long tasks (Codex kills foreground MCP calls at ~60s by default).',
+  'claude-code':
+    ' You are running in Claude Code: call list_providers and delegate only to an installed non-self engine.',
+  'gemini-cli':
+    ' You are running in Gemini CLI: call list_providers and delegate only to an installed non-self engine.',
 };
 
 /** A tool's pristine, pre-adaptation state — what every call restores to first. */
@@ -100,7 +102,7 @@ export function applyHostAdaptations(
   const delegate = handles.delegate;
 
   if (p.id === 'codex' && image) {
-    if (ctx.imageProviderId && CODEX_NATIVE_IMAGE.has(ctx.imageProviderId)) {
+    if (!ctx.imageProviderId || CODEX_NATIVE_IMAGE.has(ctx.imageProviderId)) {
       // Same engine, twice over — hide our tool and let Codex use its own.
       image.enabled = false;
       changes.push('hid generate_image (Codex has native image generation on the same engine)');
@@ -113,9 +115,14 @@ export function applyHostAdaptations(
   }
 
   if (p.id === 'codex' && search) {
-    // Codex's web.run is a cached index by default; flag web_search as the LIVE path.
-    search.description = SEARCH_LIVE_PREFIX + pristine(search).description;
-    changes.push('reframed web_search as live grounded search vs Codex cached web.run');
+    if (!ctx.searchProviderId) {
+      search.enabled = false;
+      changes.push('hid web_search (no Vibecoders search provider is ready)');
+    } else {
+      // Codex's web.run is a cached index by default; flag web_search as the LIVE path.
+      search.description = SEARCH_LIVE_PREFIX + pristine(search).description;
+      changes.push('reframed web_search as live grounded search vs Codex cached web.run');
+    }
   }
 
   if (

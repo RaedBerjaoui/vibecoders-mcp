@@ -50,6 +50,12 @@ export interface RagData {
   layers: RagLayers;
 }
 
+/** Optional runtime facts. Omitted context preserves the original verbatim render API. */
+export interface RagRenderContext {
+  host?: HostProfile;
+  imageProviderId?: string;
+}
+
 /** Generous byte bound — no current layer approaches it, so nothing truncates;
  *  it only exists so a future oversized layer degrades gracefully, like vault. */
 const MAX_LAYER_BYTES = 200_000;
@@ -82,8 +88,29 @@ const NOT_INSTALLED =
   'scripts/build-rag-data.mjs generates both from your own design-knowledge tree.';
 
 /** The always-loaded core text. Pure: caller supplies the data. */
-export function renderCore(core: RagCore): string {
-  return core.content;
+function executionPolicy(ctx?: RagRenderContext): string {
+  if (!ctx?.host) return '';
+  switch (ctx.host.id) {
+    case 'codex':
+      return ctx.imageProviderId === 'gemini-api'
+        ? 'HOST EXECUTION POLICY (binding; overrides conflicting corpus text): Use Codex native image generation by default. generate_image is intentionally available as an alternate engine. Never invoke or delegate to codex-cli merely to generate an image.'
+        : 'HOST EXECUTION POLICY (binding; overrides conflicting corpus text): Use Codex native image generation directly. generate_image is hidden. Never invoke or delegate to codex-cli merely to generate an image.';
+    case 'claude-code':
+      return 'HOST EXECUTION POLICY (binding; overrides conflicting corpus text): When configured, use the external generate_image path. A background subagent may be used when useful, but is never required.';
+    case 'gemini-cli':
+      return 'HOST EXECUTION POLICY (binding; overrides conflicting corpus text): Use capabilities actually surfaced by this client; do not assume a subagent suite exists.';
+    default:
+      return 'HOST EXECUTION POLICY (binding; overrides conflicting corpus text): Choose only capabilities actually available in this host.';
+  }
+}
+
+function policyApplies(name: string): boolean {
+  return name === 'design_core' || ['directives', 'scaffolds', 'image_gen'].includes(name);
+}
+
+export function renderCore(core: RagCore, ctx?: RagRenderContext): string {
+  const policy = executionPolicy(ctx);
+  return policy ? `${policy}\n\n${core.content}` : core.content;
 }
 
 /** Layer names that actually carry content (for the fail-closed hint + parity). */
@@ -92,21 +119,56 @@ export function availableLayers(layers: RagLayers): string[] {
 }
 
 /** One deeper layer by name, byte-capped. Throws (with the valid list) on an unknown name. */
-export function renderLayer(layers: RagLayers, name: string, maxBytes = MAX_LAYER_BYTES): string {
+function filteredDonts(body: string, host?: HostProfile): string {
+  if (!host) return body;
+  try {
+    const parsed = JSON.parse(body) as { tells?: unknown; counts?: unknown };
+    if (!Array.isArray(parsed.tells)) return body;
+    const allowed = host.id === 'codex' ? new Set(['shared', 'codex']) : host.id === 'claude-code' ? new Set(['shared', 'claude']) : host.id === 'gemini-cli' ? new Set(['shared']) : undefined;
+    if (!allowed) return body;
+    const tells = parsed.tells.filter((tell) => {
+      if (!tell || typeof tell !== 'object') return false;
+      const audience = (tell as Record<string, unknown>).models;
+      const values = Array.isArray(audience) ? audience : [audience ?? 'shared'];
+      return values.some((value) => typeof value === 'string' && allowed.has(value));
+    });
+    const count = (model: string) =>
+      tells.filter((tell) => {
+        const value = (tell as Record<string, unknown>).models;
+        return (Array.isArray(value) ? value : [value ?? 'shared']).includes(model);
+      }).length;
+    return JSON.stringify(
+      { ...parsed, tells, counts: { total: tells.length, claude: count('claude'), codex: count('codex'), shared: count('shared') } },
+      null,
+      2,
+    );
+  } catch {
+    return body;
+  }
+}
+
+export function renderLayer(
+  layers: RagLayers,
+  name: string,
+  maxBytes = MAX_LAYER_BYTES,
+  ctx?: RagRenderContext,
+): string {
   const body = layers[name];
   if (body === undefined) {
     throw new Error(`unknown layer "${name}". Available: ${availableLayers(layers).join(', ')}`);
   }
-  return body.slice(0, maxBytes);
+  const rendered = name === 'donts' ? filteredDonts(body, ctx?.host) : body;
+  const policy = policyApplies(name) ? executionPolicy(ctx) : '';
+  return `${policy ? `${policy}\n\n` : ''}${rendered}`.slice(0, maxBytes);
 }
 
 // ---- registration -----------------------------------------------------------
 
 export function registerRag(
   server: McpServer,
-  deps: { log: Logger; getHost?: () => HostProfile },
+  deps: { log: Logger; getHost?: () => HostProfile; getImageProviderId?: () => string | undefined },
 ): void {
-  const { log, getHost } = deps;
+  const { log, getHost, getImageProviderId } = deps;
   const data = loadRagData();
   if (data === null) {
     log.info(`[rag] no local design-RAG content at ${designRagDir()}; tools answer not-installed`);
@@ -120,7 +182,10 @@ export function registerRag(
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
-    async () => (data ? text(renderCore(data.core)) : text(NOT_INSTALLED)),
+    async () =>
+      data
+        ? text(renderCore(data.core, { host: getHost?.(), imageProviderId: getImageProviderId?.() }))
+        : text(NOT_INSTALLED),
   );
 
   server.registerTool(
@@ -136,14 +201,11 @@ export function registerRag(
     async ({ layer }) => {
       if (!data) return text(NOT_INSTALLED);
       try {
-        let out = renderLayer(data.layers, layer);
-        // When the driving client generates images natively, steer toward it on
-        // the image layer — generate_image may be hidden as a duplicate there.
-        if (layer === 'image_gen' && getHost?.().native.imageGen) {
-          out +=
-            '\n\n(Host note: this client has native image generation — prefer it; ' +
-            'generate_image may be hidden as redundant.)';
-        }
+        const host = getHost?.();
+        let out = renderLayer(data.layers, layer, MAX_LAYER_BYTES, {
+          host,
+          imageProviderId: getImageProviderId?.(),
+        });
         return text(out);
       } catch (e) {
         log.warn(`[design_layer] ${(e as Error).message}`);

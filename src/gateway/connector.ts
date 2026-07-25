@@ -6,6 +6,7 @@ import {
 import type { ServerDef } from './registry';
 import type { Logger } from '../util/logger';
 import { withTimeout } from '../util/timeout';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 /** Default wall-clock budget for any single downstream operation (ms). */
 export const DEFAULT_DOWNSTREAM_TIMEOUT_MS = 60_000;
@@ -17,6 +18,10 @@ export interface DownstreamTool {
   name: string;
   description: string;
   inputSchema: unknown;
+  title?: string;
+  outputSchema?: unknown;
+  annotations?: unknown;
+  [key: string]: unknown;
 }
 
 /**
@@ -118,11 +123,7 @@ export class Connector {
       this.timeoutMs,
       `listing tools on "${server}"`,
     );
-    const tools = res.tools.map((t) => ({
-      name: t.name,
-      description: t.description ?? '',
-      inputSchema: t.inputSchema,
-    }));
+    const tools = res.tools.map((t) => ({ ...t, description: t.description ?? '' }));
     this.toolCache.set(server, tools);
     this.touch(server);
     return tools;
@@ -132,16 +133,16 @@ export class Connector {
     server: string,
     name: string,
     args: Record<string, unknown>,
-  ): Promise<unknown> {
+  ): Promise<CallToolResult> {
     const client = await this.connect(server);
     this.touch(server);
     // Pass the budget to the SDK so it also cancels the in-flight request, and
     // race it ourselves so a transport that never settles can't wedge the call.
-    return withTimeout(
+    return (await withTimeout(
       client.callTool({ name, arguments: args }, undefined, { timeout: this.timeoutMs }),
       this.timeoutMs,
       `calling "${server}.${name}"`,
-    );
+    )) as CallToolResult;
   }
 
   /** Reset a server's idle timer; after idleTtlMs of no calls, close its warm child. */

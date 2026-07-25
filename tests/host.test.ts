@@ -126,6 +126,10 @@ describe('instructionsFor (per-host server instructions builder)', () => {
     memoryEnabled: true,
     ragEnabled: true,
     tasksEnabled: true,
+    imageAvailable: true,
+    searchAvailable: true,
+    gatewayReady: true,
+    delegationReady: true,
   };
 
   // The core is what Codex reliably shows (it uses the first 512 chars as the
@@ -146,16 +150,16 @@ describe('instructionsFor (per-host server instructions builder)', () => {
     }
   });
 
-  it('stays dense: base hosts near the ~2.2k anchor, Codex the intentional max', () => {
-    for (const id of Object.keys(PROFILES) as HostId[]) {
+  it('keeps Codex substantially leaner than the generic host branches', () => {
+    for (const id of Object.keys(PROFILES).filter((id) => id !== 'codex') as HostId[]) {
       const len = instructionsFor(PROFILES[id], FULL).length;
       expect(len).toBeGreaterThan(1400);
       expect(len).toBeLessThan(2600);
     }
-    // The leanest recognized host must not drift far past the single-string anchor,
-    // and Codex — which carries the most host-specific guidance — is the longest.
+    expect(instructionsFor(PROFILES.codex, FULL).length).toBeLessThan(700);
+    // Codex deliberately stays shorter than the full generic branch.
     expect(instructionsFor(PROFILES.unknown, FULL).length).toBeLessThan(2300);
-    expect(instructionsFor(PROFILES.codex, FULL).length).toBeGreaterThan(
+    expect(instructionsFor(PROFILES.codex, FULL).length).toBeLessThan(
       instructionsFor(PROFILES.unknown, FULL).length,
     );
   });
@@ -163,8 +167,7 @@ describe('instructionsFor (per-host server instructions builder)', () => {
   it('tailors the Codex surface end to end', () => {
     const text = instructionsFor(PROFILES.codex, FULL);
     expect(text).toContain('Driving client: OpenAI Codex');
-    expect(text).toContain('claude or gemini'); // recommend the OTHER engines
-    expect(text).toContain('spawns a second Codex'); // self-delegation is a review no-op
+    expect(text).toContain('installed non-Codex engine');
     expect(text).toContain('background:true');
     expect(text).toContain('web.run'); // searchRedundant:false, so the bullet exists
     expect(text).not.toContain('built to be driven'); // retired: server is multi-client now
@@ -187,14 +190,14 @@ describe('instructionsFor (per-host server instructions builder)', () => {
     const text = instructionsFor(PROFILES['claude-code'], FULL);
     expect(text).toContain('Driving client: Claude Code');
     expect(text).toContain('generate_image'); // Claude Code has no native image gen
-    expect(text).toContain('codex or gemini'); // recommend the other two engines
+    expect(text).toContain('installed non-self engine');
     expect(text).not.toContain('built to be driven');
   });
 
   it('recommends claude or codex when Gemini CLI is the host', () => {
     const text = instructionsFor(PROFILES['gemini-cli'], FULL);
     expect(text).toContain('Driving client: Google Gemini CLI');
-    expect(text).toContain('claude or codex');
+    expect(text).toContain('installed non-self engine');
   });
 
   it('emits no Driving-client line for an unrecognized host', () => {
@@ -220,5 +223,34 @@ describe('instructionsFor (per-host server instructions builder)', () => {
   it('omits the design bullet when the RAG is disabled', () => {
     const text = instructionsFor(PROFILES.codex, { ...FULL, ragEnabled: false });
     expect(text).not.toContain('design_layer');
+  });
+
+  it('does not advertise unavailable Codex additions but retains orientation tools', () => {
+    const out = instructionsFor(PROFILES.codex, {
+      imageRedundant: false, searchRedundant: false, skillsEnabled: false, memoryEnabled: false,
+      ragEnabled: false, tasksEnabled: false, imageAvailable: false, searchAvailable: false,
+      gatewayReady: false, delegationReady: false,
+    });
+    for (const absent of ['design_core', 'skill_list', 'memory_', 'search_tools', 'delegate', 'web_search', 'generate_image', 'background:true']) expect(out).not.toContain(absent);
+    expect(out).toContain('write_handoff/recall_handoff');
+    expect(out).toContain('project_context');
+    expect(out).toContain('doctor');
+  });
+
+  it('does not advertise disabled or unavailable generic additions', () => {
+    const out = instructionsFor(PROFILES['claude-code'], {
+      imageRedundant: false, searchRedundant: false, skillsEnabled: false, memoryEnabled: false,
+      ragEnabled: false, tasksEnabled: false, imageAvailable: false, searchAvailable: false,
+      gatewayReady: false, delegationReady: false,
+    });
+    for (const absent of ['design_core', 'skill_list', 'memory_', 'search_tools', 'delegate', 'web_search']) expect(out).not.toContain(absent);
+  });
+
+  it('uses a no-engine imagery fallback for Claude and Gemini rather than naming generate_image', () => {
+    for (const profile of [PROFILES['claude-code'], PROFILES['gemini-cli']]) {
+      const out = instructionsFor(profile, { ...FULL, imageAvailable: false, ragEnabled: true });
+      expect(out).toContain('supplied assets or type-led composition');
+      expect(out).not.toContain('generate_image');
+    }
   });
 });

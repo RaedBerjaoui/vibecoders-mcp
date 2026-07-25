@@ -40,6 +40,7 @@
   },
 
   "capabilities": {
+    "//": "This codex-cli image pin can serve non-Codex drivers (for example Claude or Gemini); when Codex drives, native image generation wins and this duplicate tool is hidden.",
     "image_gen": { "provider": "codex-cli" },
     "web_search": { "provider": "gemini-cli" }
   }
